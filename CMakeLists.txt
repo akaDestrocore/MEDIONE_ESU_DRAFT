@@ -81,9 +81,9 @@ target_compile_definitions(mcu INTERFACE
 )
 
 target_include_directories(mcu INTERFACE
-    ${CMAKE_SOURCE_DIR}/drivers/CMSIS/Include
-    ${CMAKE_SOURCE_DIR}/drivers/CMSIS/Device/ST/STM32F4xx/Include
-    ${CMAKE_SOURCE_DIR}/drivers/STM32F4xx_HAL_Driver/Inc
+    ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Include
+    ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Device/ST/STM32F4xx/Include
+    ${CMAKE_SOURCE_DIR}/Drivers/STM32F4xx_HAL_Driver/Inc
 )
 
 # ============================================================
@@ -92,10 +92,10 @@ target_include_directories(mcu INTERFACE
 add_executable(app.elf)
 
 target_sources(app.elf PRIVATE
-    startup/startup_stm32f407vgtx.s
-    src/main.c
-    src/system_stm32f4xx.c
-    src/image_header.c
+    core/startup/startup_stm32f407vgtx.s
+    core/src/main.c
+    core/src/system_stm32f4xx.c
+    core/src/image_header.c
 )
 
 target_link_libraries(app.elf PRIVATE mcu)
@@ -148,6 +148,7 @@ add_executable(bootloader.elf)
 target_sources(bootloader.elf PRIVATE
     bootloader/startup/startup_stm32f407vgtx.s
     bootloader/src/main.c
+    bootloader/src/system_stm32f4xx.c
 )
 
 target_link_libraries(bootloader.elf PRIVATE mcu)
