@@ -3,65 +3,29 @@
   "tasks": [
     {
       "label": "configure",
-      "type": "cmake",
-      "command": "configure",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--preset",
+        "Debug"
+      ],
       "problemMatcher": []
     },
     {
       "label": "build",
-      "type": "cmake",
-      "command": "build",
-      "targets": ["all"],
-      "problemMatcher": "$gcc",
-      "group": "build"
-    },
-    {
-      "label": "rebuild",
-      "type": "cmake",
-      "command": "cleanRebuild",
-      "targets": ["all"],
-      "problemMatcher": "$gcc",
-      "group": "build"
-    },
-
-    {
-      "label": "flash",
-      "type": "cmake",
-      "command": "build",
-      "targets": ["flash"],
-      "dependsOn": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "flash_app",
-      "type": "cmake",
-      "command": "build",
-      "targets": ["flash_app_only"],
-      "dependsOn": "build",
-      "problemMatcher": []
-    },
-
-    {
-      "label": "memap",
       "type": "shell",
-      "command": "python3",
+      "command": "cmake",
       "args": [
-        "scripts/memap.py",
-        "-t",
-        "GCC_ARM",
-        "build/esu_stm32f407.map",
-        "-d",
-        "3"
+        "--build",
+        "--preset",
+        "Debug"
       ],
-      "problemMatcher": []
-    },
-
-    {
-      "label": "programmer:list",
-      "type": "shell",
-      "command": "STM32_Programmer_CLI",
-      "args": ["--list"],
-      "problemMatcher": []
+      "dependsOn": "configure",
+      "problemMatcher": "$gcc",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
     }
   ]
 }

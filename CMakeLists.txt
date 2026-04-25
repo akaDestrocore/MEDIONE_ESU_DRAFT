@@ -197,6 +197,10 @@ target_include_directories(bootloader.elf PRIVATE
     bootloader/inc
     common/inc
     core/inc
+
+    ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Include
+    ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Device/ST/STM32F4xx/Include
+    ${CMAKE_SOURCE_DIR}/Drivers/STM32F4xx_HAL_Driver/Inc
 )
 
 target_link_options(bootloader.elf PRIVATE
