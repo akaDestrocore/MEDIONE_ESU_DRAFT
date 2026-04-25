@@ -1,0 +1,46 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Bootloader",
+      "type": "cortex-debug",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/esu_stm32f407-bl.elf",
+      "servertype": "stlink",
+      "device": "STM32F407VGTx",
+      "interface": "swd",
+
+      "svdFile": "${config:STM32VSCodeExtension.cubeCLT.path}/STMicroelectronics_CMSIS_SVD/STM32F407.svd",
+
+      "serverpath": "${config:STM32VSCodeExtension.cubeCLT.path}/STLink-gdb-server/bin/ST-LINK_gdbserver",
+      "gdbPath": "${config:STM32VSCodeExtension.cubeCLT.path}/GNU-tools-for-STM32/bin/arm-none-eabi-gdb",
+
+      "serverArgs": ["-m", "0"],
+
+      "runToEntryPoint": "main",
+      "preLaunchTask": "build"
+    },
+
+    {
+      "name": "Debug Application",
+      "type": "cortex-debug",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/esu_stm32f407.elf",
+      "servertype": "stlink",
+      "device": "STM32F407VGTx",
+      "interface": "swd",
+
+      "svdFile": "${config:STM32VSCodeExtension.cubeCLT.path}/STMicroelectronics_CMSIS_SVD/STM32F407.svd",
+
+      "serverpath": "${config:STM32VSCodeExtension.cubeCLT.path}/STLink-gdb-server/bin/ST-LINK_gdbserver",
+      "gdbPath": "${config:STM32VSCodeExtension.cubeCLT.path}/GNU-tools-for-STM32/bin/arm-none-eabi-gdb",
+
+      "serverArgs": ["-m", "0"],
+
+      "runToEntryPoint": "main",
+      "preLaunchTask": "build"
+    }
+  ]
+}

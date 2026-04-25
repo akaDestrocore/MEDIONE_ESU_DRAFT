@@ -1,0 +1,66 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake/gcc-arm-none-eabi.cmake"
+      }
+    },
+    {
+      "name": "Debug",
+      "inherits": "base",
+      "displayName": "Debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "Release",
+      "inherits": "base",
+      "displayName": "Release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    }
+  ],
+
+  "buildPresets": [
+    {
+      "name": "Debug",
+      "configurePreset": "Debug",
+      "jobs": 8
+    },
+    {
+      "name": "Release",
+      "configurePreset": "Release",
+      "jobs": 8
+    },
+
+    {
+      "name": "bootloader",
+      "configurePreset": "Debug",
+      "targets": ["${sourceDir}-bl.elf"]
+    },
+    {
+      "name": "app",
+      "configurePreset": "Debug",
+      "targets": ["${sourceDir}.elf"]
+    },
+
+    {
+      "name": "flash",
+      "configurePreset": "Release",
+      "targets": ["flash"]
+    },
+    {
+      "name": "flash_app",
+      "configurePreset": "Release",
+      "targets": ["flash_app_only"]
+    }
+  ]
+}
