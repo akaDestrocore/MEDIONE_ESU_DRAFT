@@ -84,7 +84,37 @@ target_include_directories(mcu INTERFACE
     ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Include
     ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Device/ST/STM32F4xx/Include
     ${CMAKE_SOURCE_DIR}/Drivers/STM32F4xx_HAL_Driver/Inc
+    ${CMAKE_SOURCE_DIR}/core/inc
+    ${CMAKE_SOURCE_DIR}/common/inc
 )
+
+set(HAL_PATH ${CMAKE_SOURCE_DIR}/Drivers/STM32F4xx_HAL_Driver/Src)
+
+add_library(stm32f4_hal STATIC
+    # Base HAL
+    ${HAL_PATH}/stm32f4xx_hal.c
+    ${HAL_PATH}/stm32f4xx_hal_cortex.c
+    ${HAL_PATH}/stm32f4xx_hal_dma.c
+    ${HAL_PATH}/stm32f4xx_hal_dma_ex.c
+    ${HAL_PATH}/stm32f4xx_hal_exti.c
+    ${HAL_PATH}/stm32f4xx_hal_flash.c
+    ${HAL_PATH}/stm32f4xx_hal_flash_ex.c
+    ${HAL_PATH}/stm32f4xx_hal_gpio.c
+    ${HAL_PATH}/stm32f4xx_hal_pwr.c
+    ${HAL_PATH}/stm32f4xx_hal_pwr_ex.c
+    ${HAL_PATH}/stm32f4xx_hal_rcc.c
+    ${HAL_PATH}/stm32f4xx_hal_rcc_ex.c
+    ${HAL_PATH}/stm32f4xx_hal_adc.c
+    ${HAL_PATH}/stm32f4xx_hal_adc_ex.c
+    ${HAL_PATH}/stm32f4xx_hal_crc.c
+    ${HAL_PATH}/stm32f4xx_hal_dac.c
+    ${HAL_PATH}/stm32f4xx_hal_dac_ex.c
+    ${HAL_PATH}/stm32f4xx_hal_tim.c
+    ${HAL_PATH}/stm32f4xx_hal_tim_ex.c
+    ${HAL_PATH}/stm32f4xx_hal_uart.c
+)
+
+target_link_libraries(stm32f4_hal PUBLIC mcu)
 
 # ============================================================
 # APPLICATION
@@ -93,12 +123,22 @@ add_executable(app.elf)
 
 target_sources(app.elf PRIVATE
     core/startup/startup_stm32f407vgtx.s
-    core/src/main.c
     core/src/system_stm32f4xx.c
+    core/src/sysmem.c
+    core/src/syscalls.c
+    core/src/stm32f4xx_it.c
+    core/src/stm32f4xx_hal_msp.c
+    core/src/main.c
     core/src/image_header.c
+    common/src/image.c
+    common/src/crc.c
+    common/src/flash.c
 )
 
-target_link_libraries(app.elf PRIVATE mcu)
+target_include_directories(app.elf PRIVATE
+    core/inc
+    common/inc
+)
 
 target_link_options(app.elf PRIVATE
     -T${CMAKE_SOURCE_DIR}/linker/app.ld
@@ -149,9 +189,15 @@ target_sources(bootloader.elf PRIVATE
     bootloader/startup/startup_stm32f407vgtx.s
     bootloader/src/main.c
     bootloader/src/system_stm32f4xx.c
+    common/src/crc.c
+    common/src/flash.c
 )
 
-target_link_libraries(bootloader.elf PRIVATE mcu)
+target_include_directories(bootloader.elf PRIVATE
+    bootloader/inc
+    common/inc
+    core/inc
+)
 
 target_link_options(bootloader.elf PRIVATE
     -T${CMAKE_SOURCE_DIR}/linker/bootloader.ld
