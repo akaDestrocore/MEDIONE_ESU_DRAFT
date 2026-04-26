@@ -1,54 +1,70 @@
 {
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "configure",
-      "type": "shell",
-      "command": "cmake",
-      "args": [
-        "--preset",
-        "Debug"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "build",
-      "type": "shell",
-      "command": "cmake",
-      "args": [
-        "--build",
-        "--preset",
-        "Debug"
-      ],
-      "dependsOn": "configure",
-      "problemMatcher": "$gcc",
-      "group": {
-        "kind": "build",
-      }
-    },
-    {
-      "type": "shell",
-      "label": "flash",
-      "dependsOn": "CMake: clean rebuild",
-      "command": "STM32_Programmer_CLI",
-      "args": [
-        "-c",
-        "port=swd",
-        "mode=UR",
-        "-d",
-        "${workspaceFolder}/build/firmware.bin",
-        "0x08000000",
-        "-v",
-        "-hardRst"
-      ],
-      "problemMatcher": [],
-      "options": {
-        "cwd": "${workspaceFolder}"
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "CMake: Configure",
+        "type": "shell",
+        "command": "cmake --preset Debug",
+        "problemMatcher": [],
+        "group": "build"
       },
-      "group": {
-        "kind": "build",
-        "isDefault": true
+      {
+        "label": "CMake: Build All",
+        "type": "shell",
+        "command": "cmake --build --preset Debug",
+        "dependsOn": "CMake: Configure",
+        "problemMatcher": [],
+        "group": "build"
+      },
+      {
+        "label": "CMake: Build Bootloader",
+        "type": "shell",
+        "command": "cmake --build --preset Boot-Debug",
+        "dependsOn": "CMake: Configure",
+        "problemMatcher": "$gcc",
+        "group": "build"
+      },
+      {
+        "label": "CMake: Build Application",
+        "type": "shell",
+        "command": "cmake --build --preset App-Debug",
+        "dependsOn": "CMake: Configure",
+        "problemMatcher": "$gcc",
+        "group": "build"
+      },
+      {
+        "label": "Flash: Full Firmware",
+        "type": "shell",
+        "command": "STM32_Programmer_CLI -c port=swd mode=UR -d ${workspaceFolder}/build/firmware.bin 0x08000000 -v -hardRst",
+        "dependsOn": "CMake: Build All",
+        "problemMatcher": [],
+        "group": {
+          "kind": "build",
+          "isDefault": true
+        }
+      },
+      {
+        "label": "Flash: Bootloader Only",
+        "type": "shell",
+        "command": "STM32_Programmer_CLI -c port=swd mode=UR -d ${workspaceFolder}/build/boot_debug.bin 0x08000000 -v -hardRst",
+        "dependsOn": "CMake: Build Bootloader",
+        "problemMatcher": [],
+        "group": "build"
+      },
+      {
+        "label": "Flash: Application Only",
+        "type": "shell",
+        "command": "STM32_Programmer_CLI -c port=swd mode=UR -d ${workspaceFolder}/build/app_debug.bin 0x08004000 -v -hardRst",
+        "dependsOn": "CMake: Build Application",
+        "problemMatcher": [],
+        "group": "build"
+      },
+      {
+        "label": "CMake: Clean Rebuild",
+        "type": "shell",
+        "command": "rm -rf ${workspaceFolder}/build && cmake --preset Debug && cmake --build --preset Debug",
+        "problemMatcher": "$gcc",
+        "group": "build"
       }
-    }
-  ]
+    ]
 }
