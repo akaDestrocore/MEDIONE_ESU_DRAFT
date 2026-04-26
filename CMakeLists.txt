@@ -26,11 +26,10 @@ message(STATUS "Git hash: ${GIT_COMMIT_HASH}")
 # Python
 # ============================================================
 find_program(PYTHON python3 REQUIRED)
- 
+
 set(VENV_DIR    ${CMAKE_SOURCE_DIR}/.venv)
 set(VENV_PYTHON ${VENV_DIR}/bin/python)
 
-# Create venv if not exists
 if(NOT EXISTS ${VENV_PYTHON})
     message(STATUS "Creating Python virtual environment...")
 
@@ -45,9 +44,7 @@ if(NOT EXISTS ${VENV_PYTHON})
 
     message(STATUS "Installing Python dependencies...")
 
-    execute_process(
-        COMMAND ${VENV_PYTHON} -m pip install --upgrade pip
-    )
+    execute_process(COMMAND ${VENV_PYTHON} -m pip install --upgrade pip)
 
     execute_process(
         COMMAND ${VENV_PYTHON} -m pip install -r ${CMAKE_SOURCE_DIR}/requirements.txt
@@ -62,15 +59,12 @@ endif()
 execute_process(
     COMMAND ${PYTHON} ${CMAKE_SOURCE_DIR}/scripts/tools/find_stm32cubeclt.py ${CMAKE_SOURCE_DIR}
     RESULT_VARIABLE _clt_exit
-    OUTPUT_VARIABLE _clt_stdout
-    OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 
 if(NOT _clt_exit EQUAL 0)
     message(FATAL_ERROR "find_stm32cubeclt.py failed (exit ${_clt_exit})")
 endif()
 
-# Use venv python everywhere
 set(PYTHON ${VENV_PYTHON})
 
 # ============================================================
@@ -82,13 +76,10 @@ set(APP_BASE   0x08004000)
 # ============================================================
 # Output files
 # ============================================================
-set(APP_ELF         ${CMAKE_BINARY_DIR}/app.elf)
 set(APP_MAP         ${CMAKE_BINARY_DIR}/app.map)
-
 set(APP_BIN_RAW     ${CMAKE_BINARY_DIR}/app_raw.bin)
 set(APP_BIN_PATCHED ${CMAKE_BINARY_DIR}/app_patched.bin)
 
-set(BL_ELF          ${CMAKE_BINARY_DIR}/bootloader.elf)
 set(BL_MAP          ${CMAKE_BINARY_DIR}/bootloader.map)
 set(BL_BIN          ${CMAKE_BINARY_DIR}/bootloader.bin)
 
@@ -123,18 +114,17 @@ target_link_options(mcu INTERFACE
 
 target_compile_definitions(mcu INTERFACE
     STM32F407xx
-    USE_HAL_DRIVER
     GIT_COMMIT_HASH="${GIT_COMMIT_HASH}"
 )
 
 target_include_directories(mcu INTERFACE
     ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Include
     ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Device/ST/STM32F4xx/Include
-    ${CMAKE_SOURCE_DIR}/Drivers/STM32F4xx_HAL_Driver/Inc
-    ${CMAKE_SOURCE_DIR}/core/inc
-    ${CMAKE_SOURCE_DIR}/common/inc
 )
 
+# ============================================================
+# HAL DRIVER
+# ============================================================
 set(HAL_PATH ${CMAKE_SOURCE_DIR}/Drivers/STM32F4xx_HAL_Driver/Src)
 
 add_library(stm32f4_hal STATIC
@@ -154,6 +144,16 @@ add_library(stm32f4_hal STATIC
     ${HAL_PATH}/stm32f4xx_hal_uart.c
 )
 
+target_include_directories(stm32f4_hal
+    PUBLIC
+        ${CMAKE_SOURCE_DIR}/Drivers/STM32F4xx_HAL_Driver/Inc
+)
+
+target_compile_definitions(stm32f4_hal
+    PUBLIC
+        USE_HAL_DRIVER
+)
+
 target_link_libraries(stm32f4_hal PUBLIC mcu)
 
 # ============================================================
@@ -167,7 +167,6 @@ target_sources(app.elf PRIVATE
     core/src/sysmem.c
     core/src/syscalls.c
     core/src/stm32f4xx_it.c
-    # core/src/stm32f4xx_hal_msp.c
     core/src/main.c
     core/src/image_header.c
     common/src/image.c
@@ -176,8 +175,8 @@ target_sources(app.elf PRIVATE
 )
 
 target_include_directories(app.elf PRIVATE
-    core/inc
-    common/inc
+    ${CMAKE_SOURCE_DIR}/core/inc
+    ${CMAKE_SOURCE_DIR}/common/inc
 )
 
 target_link_options(app.elf PRIVATE
@@ -192,40 +191,28 @@ target_link_libraries(app.elf PRIVATE stm32f4_hal mcu)
 # ------------------------------------------------------------
 # RAW BIN
 # ------------------------------------------------------------
+
 add_custom_command(TARGET app.elf POST_BUILD
-    COMMAND ${CMAKE_OBJCOPY}
-            -O binary
-            $<TARGET_FILE:app.elf>
-            ${APP_BIN_RAW}
-    COMMENT "Generating raw app binary"
+    COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:app.elf> ${APP_BIN_RAW}
 )
 
 # ------------------------------------------------------------
 # MEMAP
 # ------------------------------------------------------------
 add_custom_command(TARGET app.elf POST_BUILD
-    COMMAND ${PYTHON}
-            ${CMAKE_SOURCE_DIR}/scripts/tools/memap.py
-            -t GCC_ARM
-            ${APP_MAP}
-            -d 3
+    COMMAND ${PYTHON} ${CMAKE_SOURCE_DIR}/scripts/tools/memap.py -t GCC_ARM ${APP_MAP} -d 3
     COMMENT "Memory usage analysis"
 )
 
-# ------------------------------------------------------------
-# PATCH HEADER
-# ------------------------------------------------------------
 add_custom_command(TARGET app.elf POST_BUILD
-    COMMAND ${PYTHON}
-            ${CMAKE_SOURCE_DIR}/scripts/patch_image_header.py
+    COMMAND ${PYTHON} ${CMAKE_SOURCE_DIR}/scripts/patch_image_header.py
             ${APP_BIN_RAW}
             ${APP_BIN_PATCHED}
             --base-addr ${APP_BASE}
-    COMMENT "Patching image header"
 )
 
 # ============================================================
-# BOOTLOADER
+# BOOTLOADER (NO HAL)
 # ============================================================
 add_executable(bootloader.elf)
 
@@ -236,13 +223,7 @@ target_sources(bootloader.elf PRIVATE
 )
 
 target_include_directories(bootloader.elf PRIVATE
-    bootloader/inc
-    common/inc
-    core/inc
-
-    ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Include
-    ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Device/ST/STM32F4xx/Include
-    ${CMAKE_SOURCE_DIR}/Drivers/STM32F4xx_HAL_Driver/Inc
+    ${CMAKE_SOURCE_DIR}/bootloader/inc
 )
 
 target_link_options(bootloader.elf PRIVATE
@@ -252,22 +233,18 @@ target_link_options(bootloader.elf PRIVATE
     --specs=nosys.specs
 )
 
-target_link_libraries(bootloader.elf PRIVATE stm32f4_hal mcu)
+target_link_libraries(bootloader.elf PRIVATE mcu)
 
-# ------------------------------------------------------------
-# BOOTLOADER BIN
-# ------------------------------------------------------------
 add_custom_command(TARGET bootloader.elf POST_BUILD
-    COMMAND ${CMAKE_OBJCOPY}
-            -O binary
-            $<TARGET_FILE:bootloader.elf>
-            ${BL_BIN}
+    COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:bootloader.elf> ${BL_BIN}
     COMMENT "Generating bootloader binary"
 )
 
 # ============================================================
 # MERGE
 # ============================================================
+add_dependencies(app.elf bootloader.elf)
+
 add_custom_command(TARGET app.elf POST_BUILD
     COMMAND ${PYTHON}
             ${CMAKE_SOURCE_DIR}/scripts/merge_bootloader.py
@@ -278,8 +255,6 @@ add_custom_command(TARGET app.elf POST_BUILD
     COMMENT "Merging bootloader + application"
 )
 
-add_dependencies(app.elf bootloader.elf)
-
 # ============================================================
 # FLASH
 # ============================================================
@@ -289,7 +264,6 @@ add_custom_target(flash
         -c port=swd mode=UR
         -d ${MERGED_BIN} 0x08000000
         -v -hardRst
-    COMMENT "Flashing full firmware"
 )
 
 add_custom_target(flash_app
@@ -298,5 +272,4 @@ add_custom_target(flash_app
         -c port=swd mode=UR
         -d ${APP_BIN_PATCHED} ${APP_BASE}
         -v -hardRst
-    COMMENT "Flashing application only"
 )
