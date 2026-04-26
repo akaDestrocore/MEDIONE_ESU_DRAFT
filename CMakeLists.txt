@@ -147,6 +147,7 @@ add_library(stm32f4_hal STATIC
 target_include_directories(stm32f4_hal
     PUBLIC
         ${CMAKE_SOURCE_DIR}/Drivers/STM32F4xx_HAL_Driver/Inc
+        ${CMAKE_SOURCE_DIR}/core/inc
 )
 
 target_compile_definitions(stm32f4_hal
@@ -162,16 +163,16 @@ target_link_libraries(stm32f4_hal PUBLIC mcu)
 add_executable(app.elf)
 
 target_sources(app.elf PRIVATE
-    core/startup/startup_stm32f407vgtx.s
-    core/src/system_stm32f4xx.c
-    core/src/sysmem.c
-    core/src/syscalls.c
-    core/src/stm32f4xx_it.c
-    core/src/main.c
-    core/src/image_header.c
-    common/src/image.c
-    common/src/crc.c
-    common/src/flash.c
+    ${CMAKE_SOURCE_DIR}/core/startup/startup_stm32f407vgtx.s
+    ${CMAKE_SOURCE_DIR}/core/src/system_stm32f4xx.c
+    ${CMAKE_SOURCE_DIR}/core/src/sysmem.c
+    ${CMAKE_SOURCE_DIR}/core/src/syscalls.c
+    ${CMAKE_SOURCE_DIR}/core/src/stm32f4xx_it.c
+    ${CMAKE_SOURCE_DIR}/core/src/main.c
+    ${CMAKE_SOURCE_DIR}/core/src/image_header.c
+    ${CMAKE_SOURCE_DIR}/common/src/image.c
+    ${CMAKE_SOURCE_DIR}/common/src/crc.c
+    ${CMAKE_SOURCE_DIR}/common/src/flash.c
 )
 
 target_include_directories(app.elf PRIVATE
@@ -217,13 +218,15 @@ add_custom_command(TARGET app.elf POST_BUILD
 add_executable(bootloader.elf)
 
 target_sources(bootloader.elf PRIVATE
-    bootloader/startup/startup_stm32f407vgtx.s
-    bootloader/src/main.c
-    bootloader/src/system_stm32f4xx.c
+    ${CMAKE_SOURCE_DIR}/bootloader/startup/startup_stm32f407vgtx.s
+    ${CMAKE_SOURCE_DIR}/bootloader/src/main.c
+    ${CMAKE_SOURCE_DIR}/bootloader/src/system_stm32f4xx.c
+    ${CMAKE_SOURCE_DIR}/common/src/image.c
 )
 
 target_include_directories(bootloader.elf PRIVATE
     ${CMAKE_SOURCE_DIR}/bootloader/inc
+    ${CMAKE_SOURCE_DIR}/common/inc
 )
 
 target_link_options(bootloader.elf PRIVATE

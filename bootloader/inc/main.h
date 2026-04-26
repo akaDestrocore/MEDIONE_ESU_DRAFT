@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 
-#include "stm32f4xx_hal.h"
+#include "stm32f407xx.h"
 #include <stdbool.h>
 
 void Error_Handler(void);
