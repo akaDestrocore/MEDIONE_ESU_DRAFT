@@ -63,7 +63,7 @@ uint32_t crc_calculate(const uint8_t* pData, size_t len) {
  */
 uint32_t crc_calculateMemory(uint32_t addr, uint32_t size) {
 
-    if (addr < 0x08000000U || addr >= FLASH_END || size == 0) {
+    if (addr < FLASH_BASE || addr >= FLASH_END || size == 0) {
         return 0;
     }
 

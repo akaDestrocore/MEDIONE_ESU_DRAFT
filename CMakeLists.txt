@@ -183,6 +183,8 @@ target_include_directories(app.elf PRIVATE
 target_link_options(app.elf PRIVATE
     -T${CMAKE_SOURCE_DIR}/linker/app.ld
     -Wl,-Map=${APP_MAP}
+    --specs=nano.specs
+    --specs=nosys.specs
 )
 
 target_link_libraries(app.elf PRIVATE stm32f4_hal mcu)
@@ -231,8 +233,6 @@ target_sources(bootloader.elf PRIVATE
     bootloader/startup/startup_stm32f407vgtx.s
     bootloader/src/main.c
     bootloader/src/system_stm32f4xx.c
-    common/src/crc.c
-    common/src/flash.c
 )
 
 target_include_directories(bootloader.elf PRIVATE
@@ -248,6 +248,8 @@ target_include_directories(bootloader.elf PRIVATE
 target_link_options(bootloader.elf PRIVATE
     -T${CMAKE_SOURCE_DIR}/linker/bootloader.ld
     -Wl,-Map=${BL_MAP}
+    --specs=nano.specs
+    --specs=nosys.specs
 )
 
 target_link_libraries(bootloader.elf PRIVATE stm32f4_hal mcu)

@@ -5,34 +5,30 @@
 extern "C" {
 #endif
 
-#include "crc.h"
 #include <stdint.h>
-#include <string.h>
 
 #define IMAGE_MAGIC_APP       0xDEADC0DE
 #define APP_ADDR              ((uint32_t)0x08004000U)
-#define IMAGE_TYPE_APP        1
+#define IMAGE_TYPE_APP        1U
 #define IMAGE_HDR_SIZE        0x200U
+#define IMAGE_HDR_VERSION     0x0100U
 
-#define IMAGE_HDR_VERSION     0x0100
-
-typedef struct __attribute__((packed)) {
-    uint32_t image_magic;        // Magic number (component-specific)
-    uint16_t image_hdr_version;  // Header version
-    uint8_t  image_type;         // Type of image
-    uint8_t  version_major;      // Major version number
-    uint8_t  version_minor;      // Minor version number
-    uint8_t  version_patch;      // Patch version number
-    uint16_t  _padding;           // Padding for alignment
-    uint32_t vector_addr;        // Address of the vector table
-    uint32_t crc;                // CRC of the image (excluding header)
-    uint32_t data_size;          // Size of the image data
-    char git_sha[16];            // Git SHA
-    uint8_t  reserved[0x1D8];    // Reserved space to make header 0x200 bytes
+typedef struct {
+    uint32_t image_magic;        /* Magic number — IMAGE_MAGIC_APP               */
+    uint16_t image_hdr_version;  /* Header format version — IMAGE_HDR_VERSION    */
+    uint8_t  image_type;         /* IMAGE_TYPE_APP                               */
+    uint8_t  version_major;
+    uint8_t  version_minor;
+    uint8_t  version_patch;
+    uint16_t _padding;           /* Alignment pad                                */
+    uint32_t vector_addr;        /* Address of app vector table (patched post-build) */
+    uint32_t crc;                /* STM32 HW CRC32 of image data (patched post-build) */
+    uint32_t data_size;          /* Size of image data in bytes (patched post-build) */
+    char     git_sha[16];        /* 8-char hex SHA + NUL, GCC compile-time constant */
+    uint8_t  reserved[0x1D8];    /* Pad to exactly 0x200 bytes                   */
 } __attribute__((packed)) image_hdr_t;
 
-// Functions for header operations
-int image_isValid(const image_hdr_t* header);
+int image_isValid(const image_hdr_t *header);
 
 #ifdef __cplusplus
 }
