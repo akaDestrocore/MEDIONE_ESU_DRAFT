@@ -15,6 +15,7 @@ execute_process(
     OUTPUT_STRIP_TRAILING_WHITESPACE
     ERROR_QUIET
 )
+
 if(NOT GIT_COMMIT_HASH)
     set(GIT_COMMIT_HASH "00000000")
 endif()

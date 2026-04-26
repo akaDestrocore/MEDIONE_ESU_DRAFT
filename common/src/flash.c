@@ -20,16 +20,15 @@ static const uint8_t FLASH_SECTOR_COUNT = sizeof(FLASH_SECTORS_KB) / sizeof(FLAS
 
 /**
  * @brief Unlocks the Flash memory for write/erase operations.
- * @return int Returns 0 if the Flash is successfully unlocked or already unlocked, error code otherwise.
+ * @return Returns FLASH_OK if the Flash is successfully unlocked or already unlocked, error code otherwise.
  */
-int flash_unlock(void) {
-    // Check if already unlocked
-    if ((FLASH->CR & FLASH_CR_LOCK) == 0) {
-        return 0;
+flash_Status_e flash_unlock(void) {
+
+    if (0 == (FLASH->CR & FLASH_CR_LOCK)) {
+        return FLASH_OK;
     }
-    
-    HAL_StatusTypeDef status = HAL_FLASH_Unlock();
-    return (status == HAL_OK) ? 0 : -1;
+
+    return (HAL_OK == HAL_FLASH_Unlock()) ? FLASH_OK : FLASH_ERROR;
 }
 
 /**
@@ -41,185 +40,234 @@ void flash_lock(void) {
 
 /**
  * @brief Waits for the last flash operation to complete and clears any errors.
- * @retval 1 if successful, 0 if timeout or error occurred.
+ * @retval FLASH_OK if successful, error code otherwise.
  */
-int flash_waitForLastOperation(void) {
-    uint32_t timeout = HAL_GetTick() + 100; // 100ms
-    
+flash_Status_e flash_waitForLastOperation(void) {
+    uint32_t timeout = HAL_GetTick() + 100;
+
     while (__HAL_FLASH_GET_FLAG(FLASH_FLAG_BSY)) {
         if (HAL_GetTick() > timeout) {
-            return 0;
+            return FLASH_TIMEOUT;
         }
     }
-    
-    if (__HAL_FLASH_GET_FLAG(FLASH_FLAG_OPERR) || 
-        __HAL_FLASH_GET_FLAG(FLASH_FLAG_WRPERR) || 
-        __HAL_FLASH_GET_FLAG(FLASH_FLAG_PGAERR) || 
-        __HAL_FLASH_GET_FLAG(FLASH_FLAG_PGPERR) || 
+
+    if (__HAL_FLASH_GET_FLAG(FLASH_FLAG_OPERR) ||
+        __HAL_FLASH_GET_FLAG(FLASH_FLAG_WRPERR) ||
+        __HAL_FLASH_GET_FLAG(FLASH_FLAG_PGAERR) ||
+        __HAL_FLASH_GET_FLAG(FLASH_FLAG_PGPERR) ||
         __HAL_FLASH_GET_FLAG(FLASH_FLAG_PGSERR)) {
         
         // Clear error flags
-        __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR | 
-                             FLASH_FLAG_PGAERR | FLASH_FLAG_PGPERR | 
-                             FLASH_FLAG_PGSERR);
-        return 0;
+        __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_OPERR |
+                              FLASH_FLAG_WRPERR |
+                              FLASH_FLAG_PGAERR |
+                              FLASH_FLAG_PGPERR |
+                              FLASH_FLAG_PGSERR);
+
+        return FLASH_ERROR;
     }
-    
-    return 1;
+
+    return FLASH_OK;
 }
 
 
 /**
  * @brief Determines the flash sector index for a given address.
  * @param addr The flash memory address.
- * @retval Sector index or 0xFF if address is invalid.
+ * @param sector Returns sector ID by pointer
+ * @retval FLASH_OK or 0xFF if address is invalid.
  */
-uint8_t flash_getSector(uint32_t addr) {
-    if (addr < FLASH_BASE) {
-        return -1; // Invalid addr
-    }
+flash_Status_e flash_getSector(uint32_t addr, uint8_t *sector) {
     
+    if (addr < FLASH_BASE || NULL == sector) {
+        return FLASH_INVALID_PARAM;
+    }
+
     uint32_t offset = addr - FLASH_BASE;
     uint32_t current_offset = 0;
-    
+
     for (uint8_t i = 0; i < FLASH_SECTOR_COUNT; i++) {
-        uint32_t sector_size_bytes = FLASH_SECTORS_KB[i] * 1024;
-        if (offset >= current_offset && offset < current_offset + sector_size_bytes) {
-            return i;
+        uint32_t size = FLASH_SECTORS_KB[i] * 1024;
+
+        if (offset < current_offset + size) {
+            *sector = i;
+            return FLASH_OK;
         }
-        current_offset += sector_size_bytes;
+
+        current_offset += size;
     }
-    
-    return -1; // addr
+
+    return FLASH_INVALID_PARAM;
 }
 
 /**
  * @brief Gets the starting address of a given sector.
- * @param sector Sector index.
- * @retval Sector start address, or -1 if invalid.
+ * @param sector Sector index
+ * @param address Returns the starting address by pointer.
+ * @retval FLASH_OK if successfull or error code if invalid.
  */
-uint32_t flash_getSectorStart(uint8_t sector) {
+flash_Status_e flash_getSectorStart(uint8_t sector, uint32_t *address)
+{
+    if (address == NULL) {
+        return FLASH_INVALID_PARAM;
+    }
+
     if (sector >= FLASH_SECTOR_COUNT) {
-        return -1;
+        return FLASH_INVALID_PARAM;
     }
-    
-    uint32_t address = FLASH_BASE;
-    for (uint8_t i = 0; i < sector; i++) {
-        address += FLASH_SECTORS_KB[i] * 1024;
+
+    uint32_t addr = FLASH_BASE;
+
+    for (uint8_t i = 0U; i < sector; i++) {
+        addr += FLASH_SECTORS_KB[i] * 1024U;
     }
-    
-    return address;
+
+    *address = addr;
+    return FLASH_OK;
 }
 
 /**
  * @brief Gets the ending address of a given sector.
  * @param sector Sector index.
- * @retval Sector end address, or -1 if invalid.
+ * @param address Returns the ending address by pointer.
+ * @retval FLASH_OK on successfull or error code if invalid.
  */
-uint32_t flash_getSectorEnd(uint8_t sector) {
+flash_Status_e flash_getSectorEnd(uint8_t sector, uint32_t *address)
+{
+    if (address == NULL) {
+        return FLASH_INVALID_PARAM;
+    }
+
     if (sector >= FLASH_SECTOR_COUNT) {
-        return -1;
+        return FLASH_INVALID_PARAM;
     }
-    
-    uint32_t end_address = FLASH_BASE;
-    for (uint8_t i = 0; i <= sector; i++) {
-        end_address += FLASH_SECTORS_KB[i] * 1024;
+
+    uint32_t addr = FLASH_BASE;
+
+    for (uint8_t i = 0U; i <= sector; i++) {
+        addr += FLASH_SECTORS_KB[i] * 1024U;
     }
-    
-    return end_address - 1; // Last valid address in sector
+
+    *address = addr - 1U;  // last valid address
+    return FLASH_OK;
 }
 
 /**
  * @brief Erases a single flash sector by its address.
  * @param sectorAddr Address located in the target sector.
- * @retval Number of bytes that were erased if successful, -1 otherwise.
+ * @param erasedBytes Pointer to store the number of erased bytes.
+ * @retval FLASH_OK if successful, error code otherwise.
  */
-int flash_sectorErase(uint32_t sectorAddr) {
-    // Check if any pending operations
+flash_Status_e flash_sectorErase(uint32_t sectorAddr, uint32_t *erasedBytes)
+{
+    flash_Status_e status;
+    uint8_t sector;
+
+    // Validate and resolve sector
+    status = flash_getSector(sectorAddr, &sector);
+    if (status != FLASH_OK) {
+        return status;
+    }
+
+    // Clear any previous error flags
     if (HAL_FLASH_GetError() != HAL_FLASH_ERROR_NONE) {
-        // Clear error flags
-        __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR | 
-                             FLASH_FLAG_PGAERR | FLASH_FLAG_PGPERR | 
-                             FLASH_FLAG_PGSERR);
-        return -1;
+        __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_OPERR |
+                               FLASH_FLAG_WRPERR |
+                               FLASH_FLAG_PGAERR |
+                               FLASH_FLAG_PGPERR |
+                               FLASH_FLAG_PGSERR);
     }
-    
-    // Get sector number
-    uint8_t sector = flash_getSector(sectorAddr);
-    if (sector == 0xFF) {
-        return 0;
+
+    // Prepare erase structure
+    FLASH_EraseInitTypeDef eraseInit = {0};
+    uint32_t sectorError = 0U;
+
+    eraseInit.TypeErase    = FLASH_TYPEERASE_SECTORS;
+    eraseInit.VoltageRange = FLASH_VOLTAGE_RANGE_3;
+    eraseInit.Sector       = sector;
+    eraseInit.NbSectors    = 1U;
+
+    // Unlock
+    status = flash_unlock();
+    if (status != FLASH_OK) {
+        return status;
     }
-    
-    // Prepare for erase
-    FLASH_EraseInitTypeDef EraseInitStruct = {0};
-    uint32_t SectorError = 0;
-    
-    EraseInitStruct.TypeErase = FLASH_TYPEERASE_SECTORS;
-    EraseInitStruct.VoltageRange = FLASH_VOLTAGE_RANGE_3; // 2.7V to 3.6V
-    EraseInitStruct.Sector = sector;
-    EraseInitStruct.NbSectors = 1;
-    
-    // Unlock flash
-    if (!flash_unlock()) {
-        return 0;
-    }
-    
-    // Erase the sector
-    HAL_StatusTypeDef status = HAL_FLASHEx_Erase(&EraseInitStruct, &SectorError);
-    
-    // Lock flash again
+
+    // Execute erase
+    HAL_StatusTypeDef halStatus = HAL_FLASHEx_Erase(&eraseInit, &sectorError);
+
+    // Lock immediately after operation
     flash_lock();
-    
-    if (status != HAL_OK) {
-        return 0;
+
+    if (halStatus != HAL_OK) {
+        return FLASH_ERROR;
     }
-    
-    // Return the size of the erased sector in bytes
-    return FLASH_SECTORS_KB[sector] * 1024;
+
+    // Return erased size if requested
+    if (erasedBytes != NULL) {
+        *erasedBytes = FLASH_SECTORS_KB[sector] * 1024U;
+    }
+
+    return FLASH_OK;
 }
 
 /**
  * @brief Erases all flash sectors starting from a specified address.
  * @param destination Starting address for erase.
- * @retval 0 if successful, -1 otherwise.
+ * @retval FLASH_OK if successful, error code otherwise.
  */
-int flash_erase(uint32_t destination) {
-    // Check if any pending operations
+flash_Status_e flash_erase(uint32_t destination)
+{
+    flash_Status_e status;
+    uint8_t start_sector;
+
+    // Resolve starting sector
+    status = flash_getSector(destination, &start_sector);
+    if (status != FLASH_OK) {
+        return status;
+    }
+
+    // Clear previous errors if any
     if (HAL_FLASH_GetError() != HAL_FLASH_ERROR_NONE) {
-        return -1;
+        __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_OPERR |
+                               FLASH_FLAG_WRPERR |
+                               FLASH_FLAG_PGAERR |
+                               FLASH_FLAG_PGPERR |
+                               FLASH_FLAG_PGSERR);
     }
-    
-    // Get starting sector
-    uint8_t start_sector = flash_getSector(destination);
-    if (start_sector == 0xFF) {
-        return -1;
-    }
-    
+
     // Unlock flash
-    if (!flash_unlock()) {
-        return -1;
+    status = flash_unlock();
+    if (status != FLASH_OK) {
+        return status;
     }
-    
-    // Erase all sectors from start_sector to the end
-    FLASH_EraseInitTypeDef EraseInitStruct = {0};
-    uint32_t SectorError = 0;
-    
+
+    FLASH_EraseInitTypeDef eraseInit = {0};
+    uint32_t sectorError = 0U;
+
+    eraseInit.TypeErase    = FLASH_TYPEERASE_SECTORS;
+    eraseInit.VoltageRange = FLASH_VOLTAGE_RANGE_3;
+    eraseInit.NbSectors    = 1U;
+
     for (uint8_t i = start_sector; i < FLASH_SECTOR_COUNT; i++) {
-        EraseInitStruct.TypeErase = FLASH_TYPEERASE_SECTORS;
-        EraseInitStruct.VoltageRange = FLASH_VOLTAGE_RANGE_3;
-        EraseInitStruct.Sector = i;
-        EraseInitStruct.NbSectors = 1;
-        
-        if (HAL_FLASHEx_Erase(&EraseInitStruct, &SectorError) != HAL_OK) {
+
+        eraseInit.Sector = i;
+
+        if (HAL_FLASHEx_Erase(&eraseInit, &sectorError) != HAL_OK) {
             flash_lock();
-            return -1;
+            return FLASH_ERROR;
+        }
+
+        // Optional but safer: wait & validate after each sector
+        status = flash_waitForLastOperation();
+        if (status != FLASH_OK) {
+            flash_lock();
+            return status;
         }
     }
-    
-    // Lock flash
+
     flash_lock();
-    
-    return 0;
+    return FLASH_OK;
 }
 
 /**
@@ -227,74 +275,49 @@ int flash_erase(uint32_t destination) {
  * @param addr Target flash address.
  * @param data Pointer to data buffer.
  * @param len Number of bytes to write.
- * @retval 0 if successful, -1 otherwise.
+ * @retval FLASH_OK if successful, error code otherwise.
  */
-int flash_write(uint32_t addr, const uint8_t* data, size_t len) {
-    if (len == 0) {
-        return -1; // Nothing to do
-    }
+flash_Status_e flash_write(uint32_t addr, const uint8_t* data, size_t len) {
     
-    // Check alignment
+    if (NULL == data || 0 == len) {
+        return FLASH_INVALID_PARAM;
+    }
+
     if (len % 4 != 0) {
-        // Use static buffer for alignment
-        static uint8_t aligned_buffer[256]; // Static buffer for alignment
-        
-        // Check if buffer is large enough
-        size_t aligned_len = ((len + 3) / 4) * 4;
-        if (aligned_len > sizeof(aligned_buffer)) {
-            return -1; // Buffer too small
-        }
-        
-        // Copy data to aligned buffer
-        memcpy(aligned_buffer, data, len);
-        
-        // Pad with 0xFF (erased flash state)
-        for (size_t i = len; i < aligned_len; i++) {
-            aligned_buffer[i] = 0xFF;
-        }
-        
-        // Call ourselves with the aligned data
-        return flash_write(addr, aligned_buffer, aligned_len);
+        return FLASH_ALIGNMENT_ERROR;
     }
-    
-    // Wait for any previous operations
-    if (!flash_waitForLastOperation()) {
-        return -1;
+
+    if (flash_waitForLastOperation() != FLASH_OK) {
+        return FLASH_ERROR;
     }
-    
-    // Unlock
-    if (!flash_unlock()) {
-        return -1;
+
+    if (flash_unlock() != FLASH_OK) {
+        return FLASH_ERROR;
     }
-    
-    // Program flash
+
     for (size_t offset = 0; offset < len; offset += 4) {
-        uint32_t data_word = 0;
-        memcpy(&data_word, data + offset, 4);
         
-        if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, addr + offset, data_word) != HAL_OK) {
+        uint32_t word;
+        memcpy(&word, data + offset, 4);
+
+        if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, addr + offset, word) != HAL_OK) {
             flash_lock();
-            return -1;
+            return FLASH_ERROR;
         }
-        
-        // Wait with timeout
-        if (!flash_waitForLastOperation()) {
+
+        if (flash_waitForLastOperation() != FLASH_OK) {
             flash_lock();
-            return -1;
+            return FLASH_TIMEOUT;
         }
-        
-        // Verify written data
-        uint32_t read_data = *(__IO uint32_t*)(addr + offset);
-        if (read_data != data_word) {
+
+        if (*(__IO uint32_t*)(addr + offset) != word) {
             flash_lock();
-            return -1;
+            return FLASH_VERIFY_ERROR;
         }
     }
-    
-    // Lock flash
+
     flash_lock();
-    
-    return 0;
+    return FLASH_OK;
 }
 
 /**
@@ -318,70 +341,103 @@ void flash_read(uint32_t addr, uint8_t* data, size_t len) {
  * @param dataLen Length of data.
  * @param newAddr Optional output pointer to receive next write address.
  * @param newSector Optional output pointer to receive new sector index.
- * @retval 0 if successful, -1 otherwise.
+ * @retval FLASH_OK if successful, error code otherwise.
  */
-int flash_writeAcrossSectors(uint32_t currentAddr, uint8_t currentSector,
-                              const uint8_t* data, size_t dataLen,
-                              uint32_t* newAddr, uint8_t* newSector) {
-    
-    // Check if we need to cross a sector boundary
+flash_Status_e flash_writeAcrossSectors(uint32_t currentAddr, uint8_t currentSector,
+                                        const uint8_t* data, size_t dataLen,
+                                        uint32_t* newAddr, uint8_t* newSector)
+{
+    if (data == NULL || dataLen == 0) {
+        return FLASH_INVALID_PARAM;
+    }
+
+    flash_Status_e status;
+    uint8_t target_sector;
     uint32_t next_addr = currentAddr + dataLen;
-    uint8_t target_sector = flash_getSector(next_addr - 1);
-    
-    if (target_sector != currentSector && target_sector != 0xFF) {
-        // Calculate sector boundaries
-        uint32_t currentSector_end = flash_getSectorEnd(currentSector);
-        uint32_t next_sector_base = flash_getSectorStart(target_sector);
-        
-        // Calculate how much data goes in each sector
-        uint32_t bytes_in_current = currentSector_end - currentAddr + 1;
-        
-        // Make sure it's aligned
-        bytes_in_current = (bytes_in_current / 4) * 4;
-        
-        // Erase the next sector first
-        if (!flash_sectorErase(next_sector_base)) {
-            return -1;
+
+    // Determine target sector
+    status = flash_getSector(next_addr - 1U, &target_sector);
+    if (status != FLASH_OK) {
+        return status;
+    }
+
+    // Crossing sector boundary
+    if (target_sector != currentSector) {
+
+        uint32_t currentSector_end;
+        uint32_t next_sector_base;
+
+        status = flash_getSectorEnd(currentSector, &currentSector_end);
+        if (status != FLASH_OK) {
+            return status;
         }
-        
-        // Write to current sector if needed
-        if (bytes_in_current > 0 && bytes_in_current <= dataLen) {
-            if (!flash_write(currentAddr, data, bytes_in_current)) {
-                return -1;
+
+        status = flash_getSectorStart(target_sector, &next_sector_base);
+        if (status != FLASH_OK) {
+            return status;
+        }
+
+        // Bytes remaining in current sector
+        uint32_t bytes_in_current = currentSector_end - currentAddr + 1U;
+
+        // Align to 4 bytes
+        bytes_in_current = (bytes_in_current / 4U) * 4U;
+
+        if (bytes_in_current > dataLen) {
+            bytes_in_current = dataLen;
+        }
+
+        // Erase next sector before writing
+        uint32_t erasedBytes;
+        status = flash_sectorErase(next_sector_base, &erasedBytes);
+        if (status != FLASH_OK) {
+            return status;
+        }
+
+        // Write portion in current sector
+        if (bytes_in_current > 0U) {
+            status = flash_write(currentAddr, data, bytes_in_current);
+            if (status != FLASH_OK) {
+                return status;
             }
         }
-        
-        // Write to next sector
+
+        // Write remaining data into next sector
         uint32_t bytes_in_next = dataLen - bytes_in_current;
-        if (bytes_in_next > 0) {
-            if (!flash_write(next_sector_base, data + bytes_in_current, bytes_in_next)) {
-                return -1;
+
+        if (bytes_in_next > 0U) {
+            status = flash_write(next_sector_base,
+                                 data + bytes_in_current,
+                                 bytes_in_next);
+            if (status != FLASH_OK) {
+                return status;
             }
         }
-        
-        // Update output parameters
-        if (newAddr) {
+
+        // Outputs
+        if (newAddr != NULL) {
             *newAddr = next_sector_base + bytes_in_next;
         }
-        
-        if (newSector) {
+
+        if (newSector != NULL) {
             *newSector = target_sector;
         }
-    } else {
-        // Standard write within the same sector
-        if (!flash_write(currentAddr, data, dataLen)) {
-            return -1;
+    }
+    else {
+        // Single-sector write
+        status = flash_write(currentAddr, data, dataLen);
+        if (status != FLASH_OK) {
+            return status;
         }
-        
-        // Update output parameters
-        if (newAddr) {
+
+        if (newAddr != NULL) {
             *newAddr = currentAddr + dataLen;
         }
-        
-        if (newSector) {
+
+        if (newSector != NULL) {
             *newSector = currentSector;
         }
     }
-    
-    return 0;
+
+    return FLASH_OK;
 }

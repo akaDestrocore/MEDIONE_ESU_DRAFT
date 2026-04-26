@@ -28,7 +28,7 @@ import json
 from argparse import ArgumentParser
 from copy import deepcopy
 from collections import defaultdict
-from prettytable import PrettyTable, HEADER
+from prettytable import PrettyTable, HRuleStyle
 from jinja2 import FileSystemLoader, StrictUndefined
 from jinja2.environment import Environment
 import math
@@ -172,12 +172,12 @@ class _Parser(metaclass=ABCMeta):
 class _GccParser(_Parser):
     RE_OBJECT_FILE = re.compile(r'^(.+\/.+\.o(bj)?)$')
     RE_LIBRARY_OBJECT = re.compile(
-        r'^.+' + r''.format(sep) + r'lib((.+\.a)\((.+\.o(bj)?)\))$'
+        r'^.*lib((?P<lib>.+\.a)\((?P<obj>.+\.(?:o|obj|c\.obj))\))$'
     )
     RE_STD_SECTION = re.compile(r'^\s+.*0x(\w{8,16})\s+0x(\w+)\s(.+)$')
     RE_FILL_SECTION = re.compile(r'^\s*\*fill\*\s+0x(\w{8,16})\s+0x(\w+).*$')
     RE_TRANS_FILE = re.compile(r'^(.+\/|.+\.ltrans.o(bj)?)$')
-    OBJECT_EXTENSIONS = (".o", ".obj")
+    OBJECT_EXTENSIONS = (".o", ".obj", ".c.obj")
 
     ALL_SECTIONS = (
         _Parser.SECTIONS
@@ -229,8 +229,8 @@ class _GccParser(_Parser):
             test_re_obj_name = re.match(self.RE_LIBRARY_OBJECT, line)
 
             if test_re_obj_name:
-                return join('[lib]', test_re_obj_name.group(2),
-                            test_re_obj_name.group(3))
+                return join('[lib]', test_re_obj_name.group('lib'),
+                            test_re_obj_name.group('obj'))
             else:
                 if (
                     not line.startswith("LONG") and
@@ -581,7 +581,9 @@ class MemapParser(object):
         columns = ['Module']
         columns.extend(self.print_sections)
 
-        table = PrettyTable(columns, junction_char="|", hrules=HEADER)
+        table = PrettyTable(columns)
+        table.hrules = HRuleStyle.HEADER
+        table.junction_char = "|"
         table.align["Module"] = "l"
         for col in self.print_sections:
             table.align[col] = 'r'

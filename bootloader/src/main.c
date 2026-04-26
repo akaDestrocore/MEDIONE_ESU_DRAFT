@@ -9,6 +9,7 @@
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 void Error_Handler(void);
+void HardFault_Handler(void);
 
 static void boot_to_image(uint32_t addr)
 {
@@ -85,18 +86,18 @@ int main(void)
     MX_GPIO_Init();
     crc_init();
 
-    image_hdr_t header;
-    memcpy(&header, (void *)APP_ADDR, sizeof(image_hdr_t));
+    const image_hdr_t *header = (const image_hdr_t *)APP_ADDR;
 
-    if (header.image_magic == IMAGE_MAGIC_APP &&
-        header.image_type  == IMAGE_TYPE_APP  &&
-        crc_verifyFirmware(APP_ADDR, IMAGE_HDR_SIZE) == 1)
+    if (IMAGE_MAGIC_APP == header->image_magic &&
+        IMAGE_TYPE_APP  == header->image_type  &&
+        CRC_OK == crc_verifyFirmware(APP_ADDR, IMAGE_HDR_SIZE))
     {
         boot_to_image(APP_ADDR);
-    }
-    else
-    {
-        crc_invalidateFirmware(APP_ADDR);
+    } else {
+        
+        if( CRC_INVALID_SIZE == crc_invalidateFirmware(APP_ADDR)) {
+            // Error
+        }
 
         bool ledState = false;
         while (1)
@@ -107,7 +108,9 @@ int main(void)
         }
     }
 
-    while (1) {}
+    while (1) {
+        
+    }
 }
 
 void SystemClock_Config(void)
@@ -164,4 +167,14 @@ void Error_Handler(void)
 {
     __disable_irq();
     while (1) {}
+}
+
+void HardFault_Handler(void) {
+    volatile uint32_t cfsr  = SCB->CFSR;
+    volatile uint32_t bfar  = SCB->BFAR;
+    volatile uint32_t hfsr  = SCB->HFSR;
+    (void)cfsr; (void)bfar; (void)hfsr;
+    while (1) {
+
+    }
 }

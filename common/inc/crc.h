@@ -7,6 +7,17 @@ extern "C" {
 
 #include <stdint.h>
 #include <stddef.h>
+#include "image.h"
+#include "flash.h"
+
+/**
+ * @brief CRC Error Codes
+ */
+typedef enum {
+    CRC_OK              = 0,
+    CRC_MISMATCH        = -1,
+    CRC_INVALID_SIZE    = -2
+} crc_Status_e;
 
 // Initialize CRC hardware unit
 void crc_init(void);
@@ -21,10 +32,10 @@ uint32_t crc_calculate(const uint8_t* data, size_t len);
 uint32_t crc_calculateMemory(uint32_t addr, uint32_t size);
 
 // Verify image CRC
-int crc_verifyFirmware(uint32_t addr, uint32_t headerSize);
+crc_Status_e crc_verifyFirmware(uint32_t addr, uint32_t headerSize);
 
 // Invalidate image by corrupting the header
-int crc_invalidateFirmware(uint32_t addr);
+crc_Status_e crc_invalidateFirmware(uint32_t addr);
 
 #ifdef __cplusplus
 }

@@ -1,6 +1,4 @@
-#include "image.h"
-#include "flash.h"
-
+#include "crc.h"
 
 /**
  * @brief  Initializes the CRC peripheral clock.
@@ -65,7 +63,11 @@ uint32_t crc_calculate(const uint8_t* pData, size_t len) {
  */
 uint32_t crc_calculateMemory(uint32_t addr, uint32_t size) {
 
-    if (addr < 0x08000000 || addr >= 0x080FFFFF || 0 == size) {
+    if (addr < 0x08000000U || addr >= FLASH_END || size == 0) {
+        return 0;
+    }
+
+    if ((addr + size) > FLASH_END || (addr + size) < addr) {
         return 0;
     }
 
@@ -98,27 +100,33 @@ uint32_t crc_calculateMemory(uint32_t addr, uint32_t size) {
  * @brief  Verifies the CRC of a firmware image.
  * @param  addr: [in] Start address of the firmware image in flash.
  * @param  headerSize: [in] Size of the image header in bytes.
- * @return 1 if CRC matches, -1 if data size is invalid.
+ * @return CRC_OK if CRC matches, error code otherwise.
  * @note   This function reads the header to get the expected CRC and data size, then calculates and compares.
  */
-int crc_verifyFirmware(uint32_t addr, uint32_t headerSize) {
-    image_hdr_t header;
-    memcpy(&header, (void*)addr, sizeof(image_hdr_t));
+crc_Status_e crc_verifyFirmware(uint32_t addr, uint32_t headerSize) {
     
-    // Check data size
-    if (header.data_size == 0 || header.data_size > 0x100000) {
-        return -1;
+    const image_hdr_t *header = (const image_hdr_t *)addr;
+    uint32_t firmwareAddr = addr + headerSize;
+
+    if (0 == header->data_size || firmwareAddr + header->data_size > FLASH_END)  {
+        return CRC_INVALID_SIZE;
     }
     
     // Calculate CRC for the image
-    uint32_t firmwareAddr = addr + headerSize;
-    uint32_t calculatedCrc = crc_calculateMemory(firmwareAddr, header.data_size);
+    uint32_t calculatedCrc = crc_calculateMemory(firmwareAddr, header->data_size);
     
     // Compare with stored CRC
-    return calculatedCrc == header.crc;
+    return (calculatedCrc == header->crc) ? CRC_OK : CRC_MISMATCH;
 }
 
-int crc_invalidateFirmware(uint32_t addr) {
-    // Simply erase the sector containing the header
-    return flash_sectorErase(addr);
+crc_Status_e crc_invalidateFirmware(uint32_t addr) {
+    
+    uint32_t erasedBytes;
+    flash_Status_e flashStatus = flash_sectorErase(addr, &erasedBytes);
+
+    if (flashStatus != FLASH_OK) {
+        return CRC_INVALID_SIZE;
+    }
+
+    return CRC_OK;
 }

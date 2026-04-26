@@ -11,8 +11,8 @@
             "device": "STM32F407VGTx",
             "interface": "swd",
             "svdFile": "${config:stm32.cltPath}/STMicroelectronics_CMSIS_SVD/STM32F407.svd",
-            "serverpath": "${config:stm32.cltPath}/STLink-gdb-server/bin/ST-LINK_gdbserver",
-            "gdbPath":    "${config:stm32.cltPath}/GNU-tools-for-STM32/bin/arm-none-eabi-gdb",
+            "serverpath": "${workspaceFolder}/scripts/tools/gdbserver-wrapper.sh",
+            "gdbPath": "${config:stm32.cltPath}/GNU-tools-for-STM32/bin/arm-none-eabi-gdb",
             "runToEntryPoint": "main",
             "preLaunchTask": "CMake: Build Bootloader"
         },
@@ -26,8 +26,8 @@
             "device": "STM32F407VGTx",
             "interface": "swd",
             "svdFile": "${config:stm32.cltPath}/STMicroelectronics_CMSIS_SVD/STM32F407.svd",
-            "serverpath": "${config:stm32.cltPath}/STLink-gdb-server/bin/ST-LINK_gdbserver",
-            "gdbPath":    "${config:stm32.cltPath}/GNU-tools-for-STM32/bin/arm-none-eabi-gdb",
+            "serverpath": "${workspaceFolder}/scripts/tools/gdbserver-wrapper.sh",
+            "gdbPath": "${config:stm32.cltPath}/GNU-tools-for-STM32/bin/arm-none-eabi-gdb",
             "runToEntryPoint": "main",
             "preLaunchTask": "CMake: Build Application"
         },
@@ -40,10 +40,9 @@
             "servertype": "stlink",
             "device": "STM32F407VGTx",
             "interface": "swd",
-            "svdFile": "${workspaceFolder}/.vscode/STM32F407.svd",
+            "svdFile": "${config:stm32.cltPath}/STMicroelectronics_CMSIS_SVD/STM32F407.svd",
             "serverpath": "${workspaceFolder}/scripts/tools/gdbserver-wrapper.sh",
-            "gdbPath":    "${workspaceFolder}/scripts/tools/gdb-wrapper.sh",
-            "serverArgs": ["-m", "0"],
+            "gdbPath": "${config:stm32.cltPath}/GNU-tools-for-STM32/bin/arm-none-eabi-gdb",
             "runToEntryPoint": "main",
             "preLaunchTask": "CMake: Build All"
         }
