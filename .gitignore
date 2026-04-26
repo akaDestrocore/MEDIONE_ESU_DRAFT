@@ -12,3 +12,5 @@ html/
 latex/
 
 .venv/
+
+.vscode/settings.json

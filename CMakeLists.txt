@@ -29,6 +29,14 @@ find_program(PYTHON python3 REQUIRED)
 set(VENV_DIR ${CMAKE_SOURCE_DIR}/.venv)
 set(VENV_PYTHON ${VENV_DIR}/bin/python)
 
+execute_process(
+    COMMAND ${PYTHON} ${CMAKE_SOURCE_DIR}/scripts/find_stm32cubeclt.py ${CMAKE_SOURCE_DIR}
+    RESULT_VARIABLE CLT_RESULT
+)
+if(NOT CLT_RESULT EQUAL 0)
+    message(FATAL_ERROR "Failed to locate STM32CubeCLT")
+endif()
+
 # Create venv if not exists
 if(NOT EXISTS ${VENV_PYTHON})
     message(STATUS "Creating Python virtual environment...")
