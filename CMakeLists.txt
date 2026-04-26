@@ -25,17 +25,9 @@ message(STATUS "Git hash: ${GIT_COMMIT_HASH}")
 # Python
 # ============================================================
 find_program(PYTHON python3 REQUIRED)
-
-set(VENV_DIR ${CMAKE_SOURCE_DIR}/.venv)
+ 
+set(VENV_DIR    ${CMAKE_SOURCE_DIR}/.venv)
 set(VENV_PYTHON ${VENV_DIR}/bin/python)
-
-execute_process(
-    COMMAND ${PYTHON} ${CMAKE_SOURCE_DIR}/scripts/find_stm32cubeclt.py ${CMAKE_SOURCE_DIR}
-    RESULT_VARIABLE CLT_RESULT
-)
-if(NOT CLT_RESULT EQUAL 0)
-    message(FATAL_ERROR "Failed to locate STM32CubeCLT")
-endif()
 
 # Create venv if not exists
 if(NOT EXISTS ${VENV_PYTHON})
@@ -64,6 +56,17 @@ if(NOT EXISTS ${VENV_PYTHON})
     if(NOT PIP_RESULT EQUAL 0)
         message(FATAL_ERROR "Failed to install Python dependencies")
     endif()
+endif()
+
+execute_process(
+    COMMAND ${PYTHON} ${CMAKE_SOURCE_DIR}/scripts/tools/find_stm32cubeclt.py ${CMAKE_SOURCE_DIR}
+    RESULT_VARIABLE _clt_exit
+    OUTPUT_VARIABLE _clt_stdout
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+
+if(NOT _clt_exit EQUAL 0)
+    message(FATAL_ERROR "find_stm32cubeclt.py failed (exit ${_clt_exit})")
 endif()
 
 # Use venv python everywhere
