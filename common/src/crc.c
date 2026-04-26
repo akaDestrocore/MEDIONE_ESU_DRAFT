@@ -120,5 +120,5 @@ int crc_verifyFirmware(uint32_t addr, uint32_t headerSize) {
 
 int crc_invalidateFirmware(uint32_t addr) {
     // Simply erase the sector containing the header
-    return flash_eraseSector(addr);
+    return flash_sectorErase(addr);
 }

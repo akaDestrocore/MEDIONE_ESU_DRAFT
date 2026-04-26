@@ -24,6 +24,29 @@
       "problemMatcher": "$gcc",
       "group": {
         "kind": "build",
+      }
+    },
+    {
+      "type": "shell",
+      "label": "flash",
+      "dependsOn": "CMake: clean rebuild",
+      "command": "STM32_Programmer_CLI",
+      "args": [
+        "-c",
+        "port=swd",
+        "mode=UR",
+        "-d",
+        "${workspaceFolder}/build/firmware.bin",
+        "0x08000000",
+        "-v",
+        "-hardRst"
+      ],
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": {
+        "kind": "build",
         "isDefault": true
       }
     }

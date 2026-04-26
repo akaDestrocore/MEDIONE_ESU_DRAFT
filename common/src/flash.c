@@ -134,7 +134,7 @@ uint32_t flash_getSectorEnd(uint8_t sector) {
  * @param sectorAddr Address located in the target sector.
  * @retval Number of bytes that were erased if successful, -1 otherwise.
  */
-int flash_eraseSector(uint32_t sectorAddr) {
+int flash_sectorErase(uint32_t sectorAddr) {
     // Check if any pending operations
     if (HAL_FLASH_GetError() != HAL_FLASH_ERROR_NONE) {
         // Clear error flags
@@ -340,7 +340,7 @@ int flash_writeAcrossSectors(uint32_t currentAddr, uint8_t currentSector,
         bytes_in_current = (bytes_in_current / 4) * 4;
         
         // Erase the next sector first
-        if (!flash_eraseSector(next_sector_base)) {
+        if (!flash_sectorErase(next_sector_base)) {
             return -1;
         }
         

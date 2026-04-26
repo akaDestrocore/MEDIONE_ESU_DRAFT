@@ -12,6 +12,7 @@ extern "C" {
 #define IMAGE_MAGIC_APP       0xDEADC0DE
 #define APP_ADDR              ((uint32_t)0x08004000U)
 #define IMAGE_TYPE_APP        1
+#define IMAGE_HDR_SIZE        0x200U
 
 #define IMAGE_HDR_VERSION     0x0100
 

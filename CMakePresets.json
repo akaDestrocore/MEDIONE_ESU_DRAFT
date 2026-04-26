@@ -2,7 +2,7 @@
   "version": 3,
   "configurePresets": [
     {
-      "name": "base",
+      "name": "default",
       "hidden": true,
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build",
@@ -13,7 +13,7 @@
     },
     {
       "name": "Debug",
-      "inherits": "base",
+      "inherits": "default",
       "displayName": "Debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
@@ -21,7 +21,7 @@
     },
     {
       "name": "Release",
-      "inherits": "base",
+      "inherits": "default",
       "displayName": "Release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
@@ -31,36 +31,40 @@
 
   "buildPresets": [
     {
+      "name": "default",
+      "hidden": true,
+      "configurePreset": "default",
+      "jobs": 4
+    },
+    {
       "name": "Debug",
-      "configurePreset": "Debug",
-      "jobs": 8
+      "inherits": "default",
+      "configurePreset": "Debug"
     },
     {
       "name": "Release",
-      "configurePreset": "Release",
-      "jobs": 8
+      "inherits": "default",
+      "configurePreset": "Release"
     },
 
     {
       "name": "bootloader",
+      "inherits": "default",
       "configurePreset": "Debug",
-      "targets": ["${sourceDir}-bl.elf"]
+      "targets": ["bootloader"]
     },
     {
       "name": "app",
+      "inherits": "default",
       "configurePreset": "Debug",
-      "targets": ["${sourceDir}.elf"]
+      "targets": ["app"]
     },
 
     {
       "name": "flash",
+      "inherits": "default",
       "configurePreset": "Release",
       "targets": ["flash"]
-    },
-    {
-      "name": "flash_app",
-      "configurePreset": "Release",
-      "targets": ["flash_app_only"]
     }
   ]
 }

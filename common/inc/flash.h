@@ -14,7 +14,7 @@ int flash_unlock(void);
 void flash_lock(void);
 int flash_waitForLastOperation(void);
 uint8_t flash_getSector(uint32_t address);
-int flash_eraseSector(uint32_t sectorAddr);
+int flash_sectorErase(uint32_t sectorAddr);
 int flash_erase(uint32_t destination);
 int flash_write(uint32_t address, const uint8_t* data, size_t len);
 void flash_read(uint32_t address, uint8_t* data, size_t len);

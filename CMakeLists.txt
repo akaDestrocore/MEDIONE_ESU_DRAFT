@@ -26,6 +26,41 @@ message(STATUS "Git hash: ${GIT_COMMIT_HASH}")
 # ============================================================
 find_program(PYTHON python3 REQUIRED)
 
+set(VENV_DIR ${CMAKE_SOURCE_DIR}/.venv)
+set(VENV_PYTHON ${VENV_DIR}/bin/python)
+
+# Create venv if not exists
+if(NOT EXISTS ${VENV_PYTHON})
+    message(STATUS "Creating Python virtual environment...")
+
+    execute_process(
+        COMMAND ${PYTHON} -m venv ${VENV_DIR}
+        RESULT_VARIABLE VENV_RESULT
+    )
+
+    if(NOT VENV_RESULT EQUAL 0)
+        message(FATAL_ERROR "Failed to create virtual environment")
+    endif()
+
+    message(STATUS "Installing Python dependencies...")
+
+    execute_process(
+        COMMAND ${VENV_PYTHON} -m pip install --upgrade pip
+    )
+
+    execute_process(
+        COMMAND ${VENV_PYTHON} -m pip install -r ${CMAKE_SOURCE_DIR}/requirements.txt
+        RESULT_VARIABLE PIP_RESULT
+    )
+
+    if(NOT PIP_RESULT EQUAL 0)
+        message(FATAL_ERROR "Failed to install Python dependencies")
+    endif()
+endif()
+
+# Use venv python everywhere
+set(PYTHON ${VENV_PYTHON})
+
 # ============================================================
 # Memory layout
 # ============================================================
@@ -91,7 +126,6 @@ target_include_directories(mcu INTERFACE
 set(HAL_PATH ${CMAKE_SOURCE_DIR}/Drivers/STM32F4xx_HAL_Driver/Src)
 
 add_library(stm32f4_hal STATIC
-    # Base HAL
     ${HAL_PATH}/stm32f4xx_hal.c
     ${HAL_PATH}/stm32f4xx_hal_cortex.c
     ${HAL_PATH}/stm32f4xx_hal_dma.c
@@ -104,13 +138,7 @@ add_library(stm32f4_hal STATIC
     ${HAL_PATH}/stm32f4xx_hal_pwr_ex.c
     ${HAL_PATH}/stm32f4xx_hal_rcc.c
     ${HAL_PATH}/stm32f4xx_hal_rcc_ex.c
-    ${HAL_PATH}/stm32f4xx_hal_adc.c
-    ${HAL_PATH}/stm32f4xx_hal_adc_ex.c
     ${HAL_PATH}/stm32f4xx_hal_crc.c
-    ${HAL_PATH}/stm32f4xx_hal_dac.c
-    ${HAL_PATH}/stm32f4xx_hal_dac_ex.c
-    ${HAL_PATH}/stm32f4xx_hal_tim.c
-    ${HAL_PATH}/stm32f4xx_hal_tim_ex.c
     ${HAL_PATH}/stm32f4xx_hal_uart.c
 )
 
@@ -127,7 +155,7 @@ target_sources(app.elf PRIVATE
     core/src/sysmem.c
     core/src/syscalls.c
     core/src/stm32f4xx_it.c
-    core/src/stm32f4xx_hal_msp.c
+    # core/src/stm32f4xx_hal_msp.c
     core/src/main.c
     core/src/image_header.c
     common/src/image.c
@@ -144,6 +172,8 @@ target_link_options(app.elf PRIVATE
     -T${CMAKE_SOURCE_DIR}/linker/app.ld
     -Wl,-Map=${APP_MAP}
 )
+
+target_link_libraries(app.elf PRIVATE stm32f4_hal mcu)
 
 # ------------------------------------------------------------
 # RAW BIN
@@ -207,6 +237,8 @@ target_link_options(bootloader.elf PRIVATE
     -T${CMAKE_SOURCE_DIR}/linker/bootloader.ld
     -Wl,-Map=${BL_MAP}
 )
+
+target_link_libraries(bootloader.elf PRIVATE stm32f4_hal mcu)
 
 # ------------------------------------------------------------
 # BOOTLOADER BIN
