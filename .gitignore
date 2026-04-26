@@ -10,3 +10,5 @@ cppcheck/cpp-cppcheck-build-dir/
 html/
 
 latex/
+
+.venv/
