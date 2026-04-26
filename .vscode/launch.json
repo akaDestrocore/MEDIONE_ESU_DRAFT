@@ -6,7 +6,7 @@
             "type": "cortex-debug",
             "request": "launch",
             "cwd": "${workspaceFolder}",
-            "executable": "${workspaceFolder}/build/boot.elf",
+            "executable": "${workspaceFolder}/build/bootloader.elf",
             "servertype": "stlink",
             "device": "STM32F407VGTx",
             "interface": "swd",

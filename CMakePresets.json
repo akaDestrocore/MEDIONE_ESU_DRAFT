@@ -50,21 +50,21 @@
       "name": "Boot-Debug",
       "configurePreset": "Debug",
       "displayName": "Build Bootloader (Debug)",
-      "targets": ["bootloader"],
+      "targets": ["bootloader.elf"],
       "jobs": 4
     },
     {
       "name": "App-Debug",
       "configurePreset": "Debug",
       "displayName": "Build Application (Debug)",
-      "targets": ["app"],
+      "targets": ["app.elf"],
       "jobs": 4
     },
     {
       "name": "Flash-Full",
       "configurePreset": "Debug",
       "displayName": "Build + Flash Full Firmware",
-      "targets": ["flash_full"],
+      "targets": ["flash"],
       "jobs": 4
     }
   ]
