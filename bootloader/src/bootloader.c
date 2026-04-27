@@ -38,13 +38,15 @@ int main(void) {
     gpio_init();
 
     if (bl_isImageValid()) {
+        deinit_system();
         boot_to_image(); 
     }
 
     bool ledState = false;
+
     while (1) {
         ledState = !ledState;
-        led_set(2U, ledState);
+        led_set(2, ledState);
         delay_ms(200U);
     }
 }
@@ -162,7 +164,7 @@ static uint32_t crc_calculate(uint32_t addr, uint32_t size) {
     // Feed remaining bytes as a single word
     uint32_t remaining = size & 3U;
     if (remaining > 0U) {
-        const uint8_t *pByte = (const uint8_t *)p;
+        const uint8_t *pByte = (const uint8_t *)pAddr;
         uint32_t last = 0U;
         for (uint32_t i = 0U; i < remaining; i++) {
             last |= (uint32_t)pByte[i] << (i * 8U);
@@ -240,9 +242,6 @@ static void deinit_system(void) {
 
     RCC->APB2ENR &= ~(RCC_APB2ENR_USART1EN |
                       RCC_APB2ENR_SYSCFGEN);
-
-    // AHB3
-    RCC->AHB3ENR &= ~(RCC_AHB3ENR_QSPIEN);
 
     // Reset all NVICs
     for (uint32_t i = 0; i < 8; i++) {
