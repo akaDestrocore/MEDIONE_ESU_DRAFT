@@ -44,6 +44,7 @@ if(NOT CLT_PATH)
             "$ENV{HOMEDRIVE}/ST/STM32CubeCLT*")
     else()
         file(GLOB _candidates
+            "/opt/stm32cubeclt*"
             "/opt/st/stm32cubeclt*"
             "/opt/ST/stm32cubeclt*"
             "/opt/st/STM32CubeCLT*"

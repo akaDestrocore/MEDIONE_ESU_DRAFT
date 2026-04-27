@@ -9,7 +9,7 @@ def find_clt():
     if sys.platform == "win32":
         candidates = glob.glob("C:/ST/STM32CubeCLT_*")
     else:
-        candidates = glob.glob("/opt/st/stm32cubeclt_*")
+        candidates = glob.glob("/opt/st/stm32cubeclt_*") + glob.glob("/opt/stm32cubeclt*")
 
     candidates = sorted(candidates, reverse=True)
     if not candidates:
