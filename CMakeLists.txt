@@ -225,7 +225,7 @@ add_custom_command(TARGET app.elf POST_BUILD
 )
 
 # ============================================================
-# BOOTLOADER (NO HAL)
+# BOOTLOADER
 # ============================================================
 add_executable(bootloader.elf)
 

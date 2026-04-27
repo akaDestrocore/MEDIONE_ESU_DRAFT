@@ -1,13 +1,34 @@
+/**
+ * ╔═══════════════════════════════════════════════════════════════════════╗
+ * ║                       Electrosurgical Unit                            ║
+ * ╚═══════════════════════════════════════════════════════════════════════╝
+ * 
+ * @file           main.c
+ * @brief          Main application code for the ESU
+ * 
+ * @author         destrocore
+ * @date           2026
+ * 
+ * @details
+ * This file contains the initialization and main loop of the ESU.
+ */
+
 #include "main.h"
 
+/* Type Deffinitions ---------------------------------------------------------*/
 UART_HandleTypeDef huart2;
 
+/* Private function prototypes -----------------------------------------------*/
 static void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 
-int main(void)
-{
+/**
+  * @brief  The application entry point.
+  * @retval int
+  */
+int main(void) {
+    
     HAL_Init();
     SystemClock_Config();
     MX_GPIO_Init();
@@ -15,13 +36,18 @@ int main(void)
 
     while (1)
     {
-        HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_12);  /* Green LED */
+        // Toggle green LED
+        HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_12);
         HAL_Delay(500);
     }
 }
 
-static void SystemClock_Config(void)
-{
+/**
+  * @brief System Clock Configuration
+  * @retval None
+  */
+static void SystemClock_Config(void) {
+
     RCC_OscInitTypeDef RCC_OscInitStruct = {0};
     RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
@@ -51,8 +77,13 @@ static void SystemClock_Config(void)
     }
 }
 
-static void MX_GPIO_Init(void)
-{
+/**
+  * @brief GPIO Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_GPIO_Init(void) {
+
     GPIO_InitTypeDef GPIO_InitStruct = {0};
 
     __HAL_RCC_GPIOD_CLK_ENABLE();
@@ -69,8 +100,12 @@ static void MX_GPIO_Init(void)
         GPIO_PIN_RESET);
 }
 
-static void MX_USART2_UART_Init(void)
-{
+/**
+ * @brief Initializes the USART2 peripheral.
+ * @details Configures USART2 for asynchronous communication.
+ */
+static void MX_USART2_UART_Init(void) {
+
     GPIO_InitTypeDef GPIO_InitStruct = {0};
 
     __HAL_RCC_USART2_CLK_ENABLE();
@@ -97,8 +132,14 @@ static void MX_USART2_UART_Init(void)
     }
 }
 
-void Error_Handler(void)
-{
+/**
+ * @brief Generic error handler
+ * @note This function is called by the HAL library in case of an error.
+ */
+void Error_Handler(void) {
+
     __disable_irq();
-    while (1) {}
+    while (1) {
+        __NOP(); 
+    }
 }

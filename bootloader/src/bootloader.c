@@ -27,6 +27,8 @@ static uint32_t crc_calculate(uint32_t addr, uint32_t size);
 static bool bl_isImageValid(void);
 static void deinit_system(void);
 static __attribute__((noreturn)) void boot_to_image(void);
+void Error_Handler(void);
+void HardFault_Handler(void);
 
 /**
   * @brief  Main entry point of bootloader
@@ -37,7 +39,7 @@ int main(void) {
     rcc_init();
     gpio_init();
 
-    if (bl_isImageValid()) {
+    if (true == bl_isImageValid()) {
         deinit_system();
         boot_to_image(); 
     }
@@ -145,7 +147,7 @@ static void delay_ms(uint32_t ms) {
  * @brief Calculate STM32 hardware CRC32 over a flash region.
  * @param addr  Start address of the data
  * @param size  Number of bytes
- * @return  CRC32 result
+ * @retval  CRC32 result
  * @note    Data must be 4 byte aligned
  */
 static uint32_t crc_calculate(uint32_t addr, uint32_t size) {
@@ -177,7 +179,7 @@ static uint32_t crc_calculate(uint32_t addr, uint32_t size) {
 
 /**
  * @brief Validate the application image located at APP_ADDR.
- * @return true if the image is valid and safe to boot, false otherwise
+ * @retval true if the image is valid and safe to boot, false otherwise
  */
 static bool bl_isImageValid(void) {
     
@@ -210,6 +212,7 @@ static bool bl_isImageValid(void) {
 
 /**
  * @brief De-initialize all peripherals
+ * @retval None
  */
 static void deinit_system(void) {
 
@@ -227,11 +230,11 @@ static void deinit_system(void) {
     RCC->APB1RSTR &= ~RCC_APB1RSTR_PWRRST;
 
     // APB2
-    RCC->APB2RSTR |= RCC_APB2RSTR_USART1RST |
-                     RCC_APB2RSTR_SYSCFGRST;
+    RCC->APB2RSTR |= RCC_APB2RSTR_USART1RST 
+                    | RCC_APB2RSTR_SYSCFGRST;
 
-    RCC->APB2RSTR &= ~(RCC_APB2RSTR_USART1RST |
-                       RCC_APB2RSTR_SYSCFGRST);
+    RCC->APB2RSTR &= ~(RCC_APB2RSTR_USART1RST 
+                    | RCC_APB2RSTR_SYSCFGRST);
     
     // Disbale peripheral buff 
     RCC->AHB1ENR &= ~(RCC_AHB1ENR_CRCEN |
@@ -256,9 +259,10 @@ static void deinit_system(void) {
 
 /**
  * @brief Hand control to the application.
+ * @retval None
  */
-static __attribute__((noreturn)) void boot_to_image(void)
-{
+static __attribute__((noreturn)) void boot_to_image(void) {
+
     const uint32_t vectorAddr = APP_ADDR + IMAGE_HDR_SIZE;
     const uint32_t appMsp = *(const uint32_t *)(vectorAddr);
     const uint32_t appResetFn = *(const uint32_t *)(vectorAddr + 4U);
@@ -299,24 +303,29 @@ static __attribute__((noreturn)) void boot_to_image(void)
  * Fault / error handlers
  * -------------------------------------------------------------------------*/
 
-void Error_Handler(void)
-{
+/**
+ * @brief Generic error handler
+ * @note This function is called by the HAL library in case of an error.
+ */
+void Error_Handler(void) {
+
     __disable_irq();
-    while (1) {}
+    while (1) {
+        __NOP();
+    }
 }
 
 /**
  * @brief HardFault handler
- *
- * Volatile reads prevent the compiler from optimising away the
+ * @note Volatile reads prevent the compiler from optimising away the
  * register captures, making them visible in a debugger
  */
-void HardFault_Handler(void)
-{
+void HardFault_Handler(void) {
+
     volatile uint32_t cfsr = SCB->CFSR;     // Configurable Fault Status
     volatile uint32_t hfsr = SCB->HFSR;     // HardFault Status
     volatile uint32_t bfar = SCB->BFAR;     // Bus Fault Address
-    volatile uint32_t mmar = SCB->MMFAR;    //MemManage Fault Address
+    volatile uint32_t mmar = SCB->MMFAR;    // MemManage Fault Address
     (void)cfsr; (void)hfsr; (void)bfar; (void)mmar;
     while (1) {
         __NOP();
