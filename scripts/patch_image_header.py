@@ -12,9 +12,6 @@ OFFSET_CRC        = 0x10
 OFFSET_DATA_SIZE  = 0x14
 OFFSET_VECTOR     = 0x0C
 
-HEADER_SIZE = 0x200
-
-
 def stm32_crc32(data: bytes) -> int:
     crc = 0xFFFFFFFF
 
@@ -61,7 +58,7 @@ def patch(input_file: str, output_file: str, base_addr: int) -> None:
 
     crc = stm32_crc32(data)
     size = len(data)
-    vector_addr = base_addr + HEADER_SIZE
+    vector_addr = base_addr + IMAGE_HDR_SIZE
 
     struct.pack_into('<I', header, OFFSET_CRC, crc)
     struct.pack_into('<I', header, OFFSET_DATA_SIZE, size)
