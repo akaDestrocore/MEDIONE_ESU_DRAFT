@@ -35,7 +35,7 @@ def update_vscode_settings(clt_path, workspace_root):
     with open(settings_path, "w") as f:
         json.dump(settings, f, indent=4)
 
-    print(f"STM32CubeCLT found: {clt_path}")
+    print(f"STM32CubeCLT: {clt_path}")
     print(f"Written to: {settings_path}")
 
 

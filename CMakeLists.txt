@@ -3,16 +3,6 @@ cmake_minimum_required(VERSION 3.22)
 project(esu_stm32f407 C CXX ASM)
 
 include(cmake/gcc-arm-none-eabi.cmake)
-
-set("${STM32_PROGRAMMER_CLI}"
-    "${CLT_PATH}/STM32CubeProgrammer/bin/"${STM32_PROGRAMMER_CLI}"")
-
-if(NOT EXISTS "${"${STM32_PROGRAMMER_CLI}"}")
-    message(FATAL_ERROR
-        ""${STM32_PROGRAMMER_CLI}" not found at: ${"${STM32_PROGRAMMER_CLI}"}\n"
-        "Check that STM32CubeProgrammer is installed inside STM32CubeCLT.")
-endif()
-
 enable_language(C CXX ASM)
 
 # ============================================================
@@ -31,6 +21,18 @@ if(NOT GIT_COMMIT_HASH)
 endif()
 
 message(STATUS "Git hash: ${GIT_COMMIT_HASH}")
+
+# ============================================================
+# STM32CubeProgrammer Path
+# ============================================================
+set(STM32_PROGRAMMER_CLI
+    "${CLT_PATH}/STM32CubeProgrammer/bin/STM32_Programmer_CLI")
+
+if(NOT EXISTS "${STM32_PROGRAMMER_CLI}")
+    message(FATAL_ERROR
+        "STM32_Programmer_CLI not found at: ${STM32_PROGRAMMER_CLI}\n"
+        "Check that STM32CubeProgrammer is installed inside STM32CubeCLT.")
+endif()
 
 # ============================================================
 # Python
@@ -229,7 +231,7 @@ add_executable(bootloader.elf)
 
 target_sources(bootloader.elf PRIVATE
     ${CMAKE_SOURCE_DIR}/bootloader/startup/startup_stm32f407vgtx.s
-    ${CMAKE_SOURCE_DIR}/bootloader/src/main.c
+    ${CMAKE_SOURCE_DIR}/bootloader/src/bootloader.c
     ${CMAKE_SOURCE_DIR}/bootloader/src/system_stm32f4xx.c
     ${CMAKE_SOURCE_DIR}/common/src/image.c
 )

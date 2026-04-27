@@ -68,8 +68,6 @@ if(NOT CLT_PATH OR NOT EXISTS "${CLT_PATH}")
         "  export CLT_PATH=/path/to/stm32cubeclt && cmake --preset Debug\n")
 endif()
 
-message(STATUS "STM32CubeCLT: ${CLT_PATH}")
-
 set(_toolchain "${CLT_PATH}/GNU-tools-for-STM32/bin")
 
 set(CMAKE_C_COMPILER   "${_toolchain}/arm-none-eabi-gcc")
