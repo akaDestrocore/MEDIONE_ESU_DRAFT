@@ -70,10 +70,16 @@ endif()
 
 set(_toolchain "${CLT_PATH}/GNU-tools-for-STM32/bin")
 
-set(CMAKE_C_COMPILER   "${_toolchain}/arm-none-eabi-gcc")
-set(CMAKE_CXX_COMPILER "${_toolchain}/arm-none-eabi-g++")
-set(CMAKE_ASM_COMPILER "${_toolchain}/arm-none-eabi-gcc")
-set(CMAKE_OBJCOPY      "${_toolchain}/arm-none-eabi-objcopy")
-set(CMAKE_SIZE         "${_toolchain}/arm-none-eabi-size")
+if(CMAKE_HOST_WIN32)
+    set(_exe ".exe")
+else()
+    set(_exe "")
+endif()
+
+set(CMAKE_C_COMPILER   "${_toolchain}/arm-none-eabi-gcc${_exe}")
+set(CMAKE_CXX_COMPILER "${_toolchain}/arm-none-eabi-g++${_exe}")
+set(CMAKE_ASM_COMPILER "${_toolchain}/arm-none-eabi-gcc${_exe}")
+set(CMAKE_OBJCOPY      "${_toolchain}/arm-none-eabi-objcopy${_exe}")
+set(CMAKE_SIZE         "${_toolchain}/arm-none-eabi-size${_exe}")
 
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)

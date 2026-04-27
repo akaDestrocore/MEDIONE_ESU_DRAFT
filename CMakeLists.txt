@@ -25,8 +25,14 @@ message(STATUS "Git hash: ${GIT_COMMIT_HASH}")
 # ============================================================
 # STM32CubeProgrammer Path
 # ============================================================
+if(CMAKE_HOST_WIN32)
+    set(_exe ".exe")
+else()
+    set(_exe "")
+endif()
+
 set(STM32_PROGRAMMER_CLI
-    "${CLT_PATH}/STM32CubeProgrammer/bin/STM32_Programmer_CLI")
+    "${CLT_PATH}/STM32CubeProgrammer/bin/STM32_Programmer_CLI${_exe}")
 
 if(NOT EXISTS "${STM32_PROGRAMMER_CLI}")
     message(FATAL_ERROR
@@ -39,8 +45,13 @@ endif()
 # ============================================================
 find_program(PYTHON python3 REQUIRED)
 
-set(VENV_DIR    ${CMAKE_SOURCE_DIR}/.venv)
-set(VENV_PYTHON ${VENV_DIR}/bin/python)
+set(VENV_DIR ${CMAKE_SOURCE_DIR}/.venv)
+
+if(CMAKE_HOST_WIN32)
+    set(VENV_PYTHON ${VENV_DIR}/Scripts/python.exe)
+else()
+    set(VENV_PYTHON ${VENV_DIR}/bin/python)
+endif()
 
 if(NOT EXISTS ${VENV_PYTHON})
     message(STATUS "Creating Python virtual environment...")
