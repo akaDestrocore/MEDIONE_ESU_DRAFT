@@ -152,18 +152,25 @@ set(HAL_PATH ${CMAKE_SOURCE_DIR}/Drivers/STM32F4xx_HAL_Driver/Src)
 
 add_library(stm32f4_hal STATIC
     ${HAL_PATH}/stm32f4xx_hal.c
-    ${HAL_PATH}/stm32f4xx_hal_cortex.c
-    ${HAL_PATH}/stm32f4xx_hal_dma.c
-    ${HAL_PATH}/stm32f4xx_hal_dma_ex.c
-    ${HAL_PATH}/stm32f4xx_hal_exti.c
-    ${HAL_PATH}/stm32f4xx_hal_flash.c
-    ${HAL_PATH}/stm32f4xx_hal_flash_ex.c
-    ${HAL_PATH}/stm32f4xx_hal_gpio.c
-    ${HAL_PATH}/stm32f4xx_hal_pwr.c
-    ${HAL_PATH}/stm32f4xx_hal_pwr_ex.c
+    ${HAL_PATH}/stm32f4xx_hal_adc.c
+    ${HAL_PATH}/stm32f4xx_hal_adc_ex.c
     ${HAL_PATH}/stm32f4xx_hal_rcc.c
     ${HAL_PATH}/stm32f4xx_hal_rcc_ex.c
-    ${HAL_PATH}/stm32f4xx_hal_crc.c
+    ${HAL_PATH}/stm32f4xx_hal_flash.c
+    ${HAL_PATH}/stm32f4xx_hal_flash_ex.c
+    ${HAL_PATH}/stm32f4xx_hal_flash_ramfunc.c
+    ${HAL_PATH}/stm32f4xx_hal_gpio.c
+    ${HAL_PATH}/stm32f4xx_hal_dma_ex.c
+    ${HAL_PATH}/stm32f4xx_hal_dma.c
+    ${HAL_PATH}/stm32f4xx_hal_pwr.c
+    ${HAL_PATH}/stm32f4xx_hal_pwr_ex.c
+    ${HAL_PATH}/stm32f4xx_hal_cortex.c
+    ${HAL_PATH}/stm32f4xx_hal.c
+    ${HAL_PATH}/stm32f4xx_hal_exti.c
+    ${HAL_PATH}/stm32f4xx_hal_dac.c
+    ${HAL_PATH}/stm32f4xx_hal_dac_ex.c
+    ${HAL_PATH}/stm32f4xx_hal_tim.c
+    ${HAL_PATH}/stm32f4xx_hal_tim_ex.c
     ${HAL_PATH}/stm32f4xx_hal_uart.c
 )
 
