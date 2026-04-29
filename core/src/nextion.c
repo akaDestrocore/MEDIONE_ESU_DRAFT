@@ -8,9 +8,7 @@
 
 #include "nextion.h"
 
-/* ----------------------------------------------------------------
- * Internal state
- * ----------------------------------------------------------------*/
+/* Private variables ---------------------------------------------------------*/
 static UART_HandleTypeDef *_huart = NULL;
 static uint8_t _dma_buf[NEXTION_RX_BUF_SIZE];
 static uint8_t _pkt_buf[NEXTION_RX_BUF_SIZE];
@@ -20,6 +18,7 @@ DMA_HandleTypeDef hdma_usart3_rx;
 
 // Nextion termination bytes
 static const uint8_t _term[3] = {0xFF, 0xFF, 0xFF};
+
 
 /* ----------------------------------------------------------------
  * Public API
