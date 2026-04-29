@@ -151,6 +151,7 @@ target_include_directories(mcu INTERFACE
 set(HAL_PATH ${CMAKE_SOURCE_DIR}/Drivers/STM32F4xx_HAL_Driver/Src)
 
 add_library(stm32f4_hal STATIC
+    ${CMAKE_SOURCE_DIR}/core/src/stm32f4xx_hal_msp.c
     ${HAL_PATH}/stm32f4xx_hal.c
     ${HAL_PATH}/stm32f4xx_hal_adc.c
     ${HAL_PATH}/stm32f4xx_hal_adc_ex.c
