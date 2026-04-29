@@ -2,7 +2,7 @@
  * ╔═══════════════════════════════════════════════════════════════╗
  * ║                   Electrosurgical Unit                        ║
  * ╚═══════════════════════════════════════════════════════════════╝
- * 
+ *
  * @file   app_fsm.h
  * @brief  ESU application state machine — public interface.
  */
@@ -20,60 +20,72 @@ extern "C" {
 #include "rf_generator.h"
 #include "adc_monitor.h"
 #include "pedal.h"
-#include "rf_generator.h"
 #include "safety.h"
-#include "uart_protocol.h"
+#include "nextion.h"           // Replaces uart_protocol.h — single Nextion driver
 
-// Polypectomy coag tick count from level 1-4
-#define POLY_COAG_TICKS_MIN  10U    // 100 ms
-#define POLY_COAG_TICKS_MAX 150U    // 1500 ms
+// Polypectomy coag tick count from level 1-4 (TIM5 at 100 Hz)
+#define POLY_COAG_TICKS_MIN   10U    // 100 ms
+#define POLY_COAG_TICKS_MAX  150U    // 1500 ms
 #define POLY_COAG_TICKS(lvl) \
-    (POLY_COAG_TICKS_MIN + \
+    ((uint16_t)(POLY_COAG_TICKS_MIN + \
      ((uint16_t)((lvl) - 1U) * \
-      ((POLY_COAG_TICKS_MAX - POLY_COAG_TICKS_MIN) / 3U)))
+      ((POLY_COAG_TICKS_MAX - POLY_COAG_TICKS_MIN) / 3U))))
 
 /**
- * @brief  One-time initialisation.  Call after all HAL and MX inits.
- * @param  timers         RF generator timer bundle.
- * @param  pHadc           ADC1 handle.
- * @param  pHdac           DAC handle.
+ * @brief  One-time initialisation. Call after all HAL and MX inits.
+ * @param  pTimers       RF generator timer bundle.
+ * @param  pHadc         ADC1 handle.
+ * @param  pHdac         DAC handle.
  * @param  pUartNextion  USART3 handle (Nextion display, 9600 baud).
+ * @retval None
  */
-void app_fsm_init(const RFGen_Timers_t *timers,
+void app_fsm_init(const RFGen_Timers_t *pTimers,
                   ADC_HandleTypeDef    *pHadc,
                   DAC_HandleTypeDef    *pHdac,
                   UART_HandleTypeDef   *pUartNextion);
 
 /**
- * @brief  Main loop body.  Call from while(1) in main().
+ * @brief  Main loop body. Call from while(1) in main().
+ * @param  None
+ * @retval None
  */
 void app_fsmProcess(void);
 
 /**
  * @brief  Polypectomy sub-state tick.
  *         Call from HAL_TIM_PeriodElapsedCallback when htim == &htim5.
+ * @param  None
+ * @retval None
  */
 void app_fsmPolyTick(void);
 
 /**
  * @brief  Blend envelope tick.
  *         Call from HAL_TIM_PeriodElapsedCallback when htim == &htim2.
+ * @param  None
+ * @retval None
  */
 void app_fsmBlendTick(void);
 
 /**
  * @brief  USART3 IDLE line callback.
  *         Call from USART3_IRQHandler after clearing the IDLE flag.
+ * @param  None
+ * @retval None
  */
 void app_fsmIdleIsr(void);
 
-/** 
- * @brief  Return current ESU state. 
+/**
+ * @brief  Return current ESU state.
+ * @param  None
+ * @retval Current AppDefs_EsuState_e value.
  */
 AppDefs_EsuState_e app_fsmGetState(void);
 
-/** 
- * @brief  Return current error bitmask. 
+/**
+ * @brief  Return current error bitmask.
+ * @param  None
+ * @retval ESU_ERR_* bitmask.
  */
 uint8_t app_fsmGetErrors(void);
 

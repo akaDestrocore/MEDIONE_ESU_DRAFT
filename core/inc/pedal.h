@@ -32,7 +32,7 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "app_defs.h"
+#include "app_defs.h"         // AppDefs_Channel_e
 #include "stm32f4xx_hal.h"
 
 #define PEDAL_DEBOUNCE_TICKS    5U
@@ -40,30 +40,30 @@ extern "C" {
 /**
  * @brief  Initialise pedal module.
  * @param  None
- * @retval 0 on success, error code otherwise
+ * @retval None
  */
 void pedal_init(void);
 
 /**
- * @brief  Update debounce counters.
+ * @brief  Update debounce counters — call once per main-loop iteration.
  * @param  None
- * @retval 0 on success, error code otherwise
+ * @retval None
  */
 void pedal_update(void);
 
 /**
  * @brief  Return true when the CUT input is stably pressed.
- * @param  channel Channel to query.
+ * @param  channel  Channel to query.
  * @retval true if CUT is pressed, false otherwise.
  */
-bool pedal_isCutPressed(ESU_Channel_e channel);
+bool pedal_isCutPressed(AppDefs_Channel_e channel);
 
 /**
  * @brief  Return true when the COAG input is stably pressed.
- * @param  channel Channel to query.
+ * @param  channel  Channel to query.
  * @retval true if COAG is pressed, false otherwise.
  */
-bool pedal_isCoagPressed(ESU_Channel_e channel);
+bool pedal_isCoagPressed(AppDefs_Channel_e channel);
 
 /**
  * @brief  Return true when bipolar forceps auto-start contact is detected.
