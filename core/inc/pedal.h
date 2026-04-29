@@ -1,10 +1,14 @@
 /**
+ * ╔═══════════════════════════════════════════════════════════════╗
+ * ║                   Electrosurgical Unit                        ║
+ * ╚═══════════════════════════════════════════════════════════════╝
+ *
  * @file   pedal.h
  * @brief  Footswitch and handswitch debounce module.
  *
  * @details
  *  All switch inputs are active-LOW with internal pull-up.
- *  Debounce: input must be stable for PEDAL_DEBOUNCE_MS before
+ *  Debounce: input must be stable for PEDAL_DEBOUNCE_TICKS before
  *  it is reported as pressed.
  *
  *  Pin mapping:
@@ -12,57 +16,64 @@
  *    PC8  — Footswitch COAG Mono1
  *    PE9  — Footswitch CUT  Mono2
  *    PE10 — Footswitch COAG Mono2
- *    PB4  — Handswitch CUT  (yellow, Twin Button Handle)
- *    PB5  — Handswitch COAG (blue,   Twin Button Handle)
- *    PB7  — REM OK signal   (active-HIGH)
+ *    PB4  — Handswitch CUT   (yellow, Twin Button Handle)
+ *    PB5  — Handswitch COAG  (blue,   Twin Button Handle)
+ *    PB7  — REM OK signal    (active-HIGH)
  *    PB8  — Bipolar auto-start (forceps contact, active-LOW)
  */
 
-#ifndef _PEDAL_H
-#define _PEDAL_H
+#ifndef PEDAL_H_
+#define PEDAL_H_
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#include "stm32f4xx_hal.h"
-#include "app_defs.h"
 #include <stdbool.h>
+#include <stdint.h>
 
-/* Debounce threshold in esu_process() calls.
- * esu_process() runs every ~5 ms → 5 × 5 ms = 25 ms debounce */
-#define PEDAL_DEBOUNCE_TICKS  5U
+#include "app_defs.h"
+#include "stm32f4xx_hal.h"
+
+#define PEDAL_DEBOUNCE_TICKS    5U
 
 /**
- * @brief  Initialise pedal module (no HAL init needed — GPIOs already
- *         configured in MX_GPIO_Init).  Just resets internal counters.
+ * @brief  Initialise pedal module.
+ * @param  None
+ * @retval 0 on success, error code otherwise
  */
 void pedal_init(void);
 
 /**
- * @brief  Update debounce counters. Call once per esu_process() cycle.
+ * @brief  Update debounce counters.
+ * @param  None
+ * @retval 0 on success, error code otherwise
  */
 void pedal_update(void);
 
 /**
- * @brief  Return true when the CUT footswitch / handswitch is stably pressed
- *         for the configured channel.
- * @param  ch  Which channel to query (MONO1, MONO2, or BIPOLAR).
+ * @brief  Return true when the CUT input is stably pressed.
+ * @param  channel Channel to query.
+ * @retval true if CUT is pressed, false otherwise.
  */
-bool pedal_cut_pressed(ESU_Channel_e ch);
+bool pedal_isCutPressed(ESU_Channel_e channel);
 
 /**
- * @brief  Return true when the COAG footswitch / handswitch is stably pressed.
+ * @brief  Return true when the COAG input is stably pressed.
+ * @param  channel Channel to query.
+ * @retval true if COAG is pressed, false otherwise.
  */
-bool pedal_coag_pressed(ESU_Channel_e ch);
+bool pedal_isCoagPressed(ESU_Channel_e channel);
 
 /**
  * @brief  Return true when bipolar forceps auto-start contact is detected.
+ * @param  None
+ * @retval true if bipolar auto-start is active, false otherwise.
  */
-bool pedal_bipolar_auto(void);
+bool pedal_isBipolarAuto(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _PEDAL_H */
+#endif /* PEDAL_H_ */

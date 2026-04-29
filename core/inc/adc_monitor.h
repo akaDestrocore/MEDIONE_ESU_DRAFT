@@ -1,4 +1,8 @@
 /**
+ * ╔═══════════════════════════════════════════════════════════════╗
+ * ║                   Electrosurgical Unit                        ║
+ * ╚═══════════════════════════════════════════════════════════════╝
+ * 
  * @file   adc_monitor.h
  * @brief  ADC1 continuous scan and output power calculation.
  *
@@ -14,11 +18,11 @@
  *    P_rms [W] ≈ (V_peak_V × I_peak_A) / 2
  *
  *  The DAC on PA4 drives the RF amplifier gain.
- *  Closed-loop proportional controller runs in adc_monitor_power_loop().
+ *  Closed-loop proportional controller runs in adcMonitor_powerLoop().
  */
 
-#ifndef _ADC_MONITOR_H
-#define _ADC_MONITOR_H
+#ifndef ADC_MONITOR_H_
+#define ADC_MONITOR_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,91 +33,94 @@ extern "C" {
 #include <stdint.h>
 
 /* ADC channel indices inside the scan sequence */
-#define ADCMON_CH_CURRENT1   0U   // PA0 — primary current
-#define ADCMON_CH_VOLTAGE    1U   // PA1 — output voltage
-#define ADCMON_CH_CURRENT2   2U   // PA2 — neutral current
-#define ADCMON_CH_REM        3U   // PA3 — REM impedance
-#define ADCMON_CH_TEMP       4U   // PB0 — heat-sink NTC
-#define ADCMON_CH_COUNT      5U
+#define ADC_MONITOR_CH__CURRENT1        0U   /* PA0 — primary current  */
+#define ADC_MONITOR_CH__VOLTAGE         1U   /* PA1 — output voltage   */
+#define ADC_MONITOR_CH__CURRENT2        2U   /* PA2 — neutral current  */
+#define ADC_MONITOR_CH__REM             3U   /* PA3 — REM impedance    */
+#define ADC_MONITOR_CH__TEMP            4U   /* PB0 — heat-sink NTC    */
+#define ADC_MONITOR_CH__COUNT           5U
 
 /* ADC reference and full-scale */
-#define ADCMON_VREF_MV      3300U
-#define ADCMON_FULLSCALE    4095U
+#define ADC_MONITOR_VREF_MV          3300U
+#define ADC_MONITOR_FULLSCALE        4095U
 
 /* Thresholds — tune to actual hardware */
-#define ADCMON_REM_ADC_MIN     200U   // below → plate disconnected
-#define ADCMON_REM_ADC_MAX    3800U   // above → plate short
-#define ADCMON_OVERCURRENT_THR 3900U  // raw 12-bit count
-#define ADCMON_OVERTEMP_THR    3500U  // raw 12-bit count (NTC divider)
+#define ADC_MONITOR_REM_ADC_MIN       200U   /* below → plate disconnected */
+#define ADC_MONITOR_REM_ADC_MAX      3800U   /* above → plate short        */
+#define ADC_MONITOR_OVERCURRENT_THR  3900U   /* raw 12-bit count           */
+#define ADC_MONITOR_OVERTEMP_THR     3500U   /* raw 12-bit count (NTC)     */
 
-/* Proportional power-control gain:  delta_dac = error_dW * Kp */
-#define ADCMON_KP_NUM   10
-#define ADCMON_KP_DEN    1   // Kp = 10/1
+/* Proportional power-control gain: delta_dac = error_dW × Kp */
+#define ADC_MONITOR_KP_NUM             10
+#define ADC_MONITOR_KP_DEN              1    /* Kp = 10 / 1 */
 
 /* DAC limits */
-#define ADCMON_DAC_MAX  4095U
+#define ADC_MONITOR_DAC_MAX          4095U
 
 /**
- * @brief  ADC raw value snapshot (updated by adc_monitor_scan()).
+ * @brief  ADC raw value snapshot.
  */
-typedef struct {
-    uint16_t raw[ADCMON_CH_COUNT];
-} ADCMon_Data_t;
+typedef struct
+{
+    uint16_t raw[ADC_MONITOR_CH__COUNT];
+} AdcMonitor_Data_t;
 
 /**
  * @brief  Initialise ADC monitor module.
- * @param  hadc  ADC1 handle.
- * @param  hdac  DAC handle.
+ * @param  pHadc  ADC1 handle.
+ * @param  pHdac  DAC handle.
  */
-void adc_monitor_init(ADC_HandleTypeDef *hadc, DAC_HandleTypeDef *hdac);
+void adcMonitor_init(ADC_HandleTypeDef* pHadc, DAC_HandleTypeDef* pHdac);
 
 /**
  * @brief  Read one complete scan cycle from ADC1.
- *         Call every pass through the main loop.
  */
-void adc_monitor_scan(void);
+void adcMonitor_scan(void);
 
 /**
  * @brief  Return a snapshot of the latest raw ADC values.
+ * @retval Pointer to the latest ADC data snapshot.
  */
-const ADCMon_Data_t *adc_monitor_get_data(void);
+const AdcMonitor_Data_t* adcMonitor_getData(void);
 
 /**
  * @brief  Run closed-loop power controller.
- *         Compares measured power to target_w and adjusts DAC.
- * @param  target_w  Desired output power in Watts.
+ * @param  targetW  Desired output power in watts.
  */
-void adc_monitor_power_loop(uint16_t target_w);
+void adcMonitor_powerLoop(uint16_t targetW);
 
 /**
- * @brief  Return the last computed output power in deci-Watts (W × 10).
+ * @brief  Return the last computed output power in deci-watts.
+ * @retval Output power in deci-watts.
  */
-uint16_t adc_monitor_get_power_dw(void);
+uint16_t adcMonitor_getPowerDw(void);
 
 /**
- * @brief  Force DAC to zero (output off).
+ * @brief  Force DAC to zero.
  */
-void adc_monitor_dac_zero(void);
+void adcMonitor_dacZero(void);
 
 /**
- * @brief  Return true if REM (return electrode monitoring) is OK.
- *         Always returns true in bipolar mode (no REM needed).
- * @param  bipolar  Pass true when channel is bipolar.
+ * @brief  Return true if REM is OK.
+ * @param  isBipolar  Pass true when channel is bipolar.
+ * @retval true if REM is acceptable, false otherwise.
  */
-bool adc_monitor_rem_ok(bool bipolar);
+bool adcMonitor_isRemOk(bool isBipolar);
 
 /**
- * @brief  Return true if any current sensor exceeds the overcurrent threshold.
+ * @brief  Return true if any current sensor exceeds the threshold.
+ * @retval true if overcurrent is detected, false otherwise.
  */
-bool adc_monitor_overcurrent(void);
+bool adcMonitor_isOvercurrent(void);
 
 /**
- * @brief  Return true if the heat-sink temperature ADC exceeds threshold.
+ * @brief  Return true if the heat-sink temperature exceeds the threshold.
+ * @retval true if overtemperature is detected, false otherwise.
  */
-bool adc_monitor_overtemp(void);
+bool adcMonitor_isOvertemp(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _ADC_MONITOR_H */
+#endif /* ADC_MONITOR_H_ */

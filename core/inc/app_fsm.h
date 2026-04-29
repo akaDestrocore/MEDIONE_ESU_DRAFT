@@ -14,11 +14,17 @@
 extern "C" {
 #endif
 
+#include <string.h>
+#include "stm32f4xx_hal.h"
 #include "app_defs.h"
 #include "rf_generator.h"
-#include "stm32f4xx_hal.h"
+#include "adc_monitor.h"
+#include "pedal.h"
+#include "rf_generator.h"
+#include "safety.h"
+#include "uart_protocol.h"
 
-/* Polypectomy coag tick count from level 1-4 */
+// Polypectomy coag tick count from level 1-4
 #define POLY_COAG_TICKS_MIN  10U    // 100 ms
 #define POLY_COAG_TICKS_MAX 150U    // 1500 ms
 #define POLY_COAG_TICKS(lvl) \
@@ -29,43 +35,47 @@ extern "C" {
 /**
  * @brief  One-time initialisation.  Call after all HAL and MX inits.
  * @param  timers         RF generator timer bundle.
- * @param  hadc           ADC1 handle.
- * @param  hdac           DAC handle.
- * @param  huart_nextion  USART3 handle (Nextion display, 9600 baud).
+ * @param  pHadc           ADC1 handle.
+ * @param  pHdac           DAC handle.
+ * @param  pUartNextion  USART3 handle (Nextion display, 9600 baud).
  */
 void app_fsm_init(const RFGen_Timers_t *timers,
-                  ADC_HandleTypeDef    *hadc,
-                  DAC_HandleTypeDef    *hdac,
-                  UART_HandleTypeDef   *huart_nextion);
+                  ADC_HandleTypeDef    *pHadc,
+                  DAC_HandleTypeDef    *pHdac,
+                  UART_HandleTypeDef   *pUartNextion);
 
 /**
  * @brief  Main loop body.  Call from while(1) in main().
  */
-void app_fsm_process(void);
+void app_fsmProcess(void);
 
 /**
  * @brief  Polypectomy sub-state tick.
  *         Call from HAL_TIM_PeriodElapsedCallback when htim == &htim5.
  */
-void app_fsm_poly_tick(void);
+void app_fsmPolyTick(void);
 
 /**
  * @brief  Blend envelope tick.
  *         Call from HAL_TIM_PeriodElapsedCallback when htim == &htim2.
  */
-void app_fsm_blend_tick(void);
+void app_fsmBlendTick(void);
 
 /**
  * @brief  USART3 IDLE line callback.
  *         Call from USART3_IRQHandler after clearing the IDLE flag.
  */
-void app_fsm_idle_isr(void);
+void app_fsmIdleIsr(void);
 
-/** @brief  Return current ESU state. */
-ESU_State_e app_fsm_get_state(void);
+/** 
+ * @brief  Return current ESU state. 
+ */
+AppDefs_EsuState_e app_fsmGetState(void);
 
-/** @brief  Return current error bitmask. */
-uint8_t app_fsm_get_errors(void);
+/** 
+ * @brief  Return current error bitmask. 
+ */
+uint8_t app_fsmGetErrors(void);
 
 #ifdef __cplusplus
 }

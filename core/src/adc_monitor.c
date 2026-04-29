@@ -1,113 +1,173 @@
 /**
+ * ╔═══════════════════════════════════════════════════════════════╗
+ * ║                   Electrosurgical Unit                        ║
+ * ╚═══════════════════════════════════════════════════════════════╝
+ * 
  * @file   adc_monitor.c
  * @brief  ADC1 scan and power/DAC control.
  */
 
 #include "adc_monitor.h"
 
-static ADC_HandleTypeDef *_hadc  = NULL;
-static DAC_HandleTypeDef *_hdac  = NULL;
+static ADC_HandleTypeDef* gAdc = NULL;
+static DAC_HandleTypeDef* gDac = NULL;
 
-static ADCMon_Data_t  _data      = {0};
-static uint32_t       _dac_val   = 0U;
-static uint16_t       _power_dw  = 0U;
+static AdcMonitor_Data_t gAdcData = {0};
+static uint32_t gDacValue = 0U;
+static uint16_t gPowerDw = 0U;
 
-/* ---------------------------------------------------------------- */
+/**
+ * @brief  Estimate output power in deci-watts from ADC readings.
+ * @retval Power estimate in deci-watts.
+ */
+static uint16_t adcMonitor_computePowerDw(void) {
+    // Scale factors — placeholder, tune to actual hardware
+    const uint32_t voltageScaleMv = 100U;   // 1 ADC count -> 100 mV
+    const uint32_t currentScaleMa = 20U;     // 1 ADC count -> 20 mA
 
-void adc_monitor_init(ADC_HandleTypeDef *hadc, DAC_HandleTypeDef *hdac) {
-    _hadc = hadc;
-    _hdac = hdac;
-    _dac_val  = 0U;
-    _power_dw = 0U;
+    uint32_t voltageMv = ((uint32_t)gAdcData.raw[ADC_MONITOR_CH__VOLTAGE] * voltageScaleMv);
+    uint32_t currentMa = ((uint32_t)gAdcData.raw[ADC_MONITOR_CH__CURRENT1] * currentScaleMa);
 
-    /* Start continuous scan — results are polled in adc_monitor_scan() */
-    HAL_ADC_Start(_hadc);
+    /* P_mW = V_mV * I_mA / 2000 for the sine approximation */
+    uint32_t powerMw = (voltageMv * currentMa) / 2000000UL;
 
-    /* Initialise DAC channel 1 at zero */
-    HAL_DAC_SetValue(_hdac, DAC_CHANNEL_1, DAC_ALIGN_12B_R, 0U);
-    HAL_DAC_Start(_hdac, DAC_CHANNEL_1);
+    return (uint16_t)(powerMw / 100U);
 }
 
-void adc_monitor_scan(void) {
-    for (uint8_t ch = 0; ch < ADCMON_CH_COUNT; ch++) {
-        if (HAL_ADC_PollForConversion(_hadc, 2U) == HAL_OK) {
-            _data.raw[ch] = (uint16_t)HAL_ADC_GetValue(_hadc);
+/**
+ * @brief  Initialise ADC monitor module.
+ * @param  pHadc  ADC1 handle.
+ * @param  pHdac  DAC handle.
+ * @retval 0 on success, error code otherwise
+ */
+void adcMonitor_init(ADC_HandleTypeDef* pHadc, DAC_HandleTypeDef* pHdac) {
+    gAdc = pHadc;
+    gDac = pHdac;
+    gDacValue = 0U;
+    gPowerDw = 0U;
+
+    if ((NULL != gAdc) && (NULL != gDac)) {
+        // Start continuous scan — results are polled in adcMonitor_scan()
+        (void)HAL_ADC_Start(gAdc);
+
+        // Initialise DAC channel 1 at zero
+        (void)HAL_DAC_SetValue(gDac, DAC_CHANNEL_1, DAC_ALIGN_12B_R, 0U);
+        (void)HAL_DAC_Start(gDac, DAC_CHANNEL_1);
+    }
+}
+
+/**
+ * @brief  Read one complete scan cycle from ADC1.
+ * @retval 0 on success, error code otherwise
+ */
+void adcMonitor_scan(void) {
+    uint8_t channelIndex = 0U;
+
+    if (NULL != gAdc) {
+        for (channelIndex = 0U; channelIndex < ADC_MONITOR_CH__COUNT; channelIndex++) {
+            if (HAL_ADC_PollForConversion(gAdc, 2U) == HAL_OK) {
+                gAdcData.raw[channelIndex] = (uint16_t)HAL_ADC_GetValue(gAdc);
+            }
         }
     }
 }
 
-const ADCMon_Data_t *adc_monitor_get_data(void) {
-    return &_data;
+/**
+ * @brief  Return a snapshot of the latest raw ADC values.
+ * @retval Pointer to the latest ADC data snapshot.
+ */
+const AdcMonitor_Data_t* adcMonitor_getData(void) {
+    return &gAdcData;
 }
 
 /**
- * @brief  Estimate RMS power from voltage and current ADC readings.
- *
- *  Hardware-specific note:
- *    The voltage sense pin (PA1) is connected to the output via a
- *    resistive divider; the current sense pin (PA0) is connected via
- *    an op-amp driven by a current shunt.  Both produce a peak-rectified
- *    signal, so the reading is proportional to V_peak and I_peak.
- *
- *    P_rms = (V_peak × I_peak) / 2  [for a pure sine wave]
- *
- *    The constants VOLTAGE_SCALE and CURRENT_SCALE below convert raw
- *    ADC counts to millivolts and milliamps respectively.
- *    *** Calibrate these to your actual hardware! ***
+ * @brief  Run closed-loop power controller.
+ * @param  targetW  Desired output power in watts.
+ * @retval 0 on success, error code otherwise
  */
-static uint16_t _compute_power_dw(void) {
-    /* Scale factors — PLACEHOLDER — tune to actual divider / shunt */
-    const uint32_t VOLTAGE_SCALE = 100U;   // 1 ADC count → 100 mV (example)
-    const uint32_t CURRENT_SCALE =  20U;   // 1 ADC count →  20 mA (example)
+void adcMonitor_powerLoop(uint16_t targetW) {
+    int32_t errorDw = 0;
+    int32_t delta = 0;
+    int32_t newValue = 0;
+    uint16_t targetDw = 0U;
 
-    uint32_t v_mv = ((uint32_t)_data.raw[ADCMON_CH_VOLTAGE]  * VOLTAGE_SCALE);
-    uint32_t i_ma = ((uint32_t)_data.raw[ADCMON_CH_CURRENT1] * CURRENT_SCALE);
+    gPowerDw = adcMonitor_computePowerDw();
 
-    /* P_mW = V_mv * I_ma / 2000  (sine rms: P = Vp*Ip/2) */
-    uint32_t p_mw = (v_mv * i_ma) / 2000000UL;
-
-    /* Return deci-Watts (W × 10) */
-    return (uint16_t)(p_mw / 100U);
-}
-
-void adc_monitor_power_loop(uint16_t target_w) {
-    _power_dw = _compute_power_dw();
-
-    uint16_t target_dw = target_w * 10U;
-    int32_t  error_dw  = (int32_t)target_dw - (int32_t)_power_dw;
+    targetDw = (uint16_t)(targetW * 10U);
+    errorDw = (int32_t)targetDw - (int32_t)gPowerDw;
 
     /* Proportional controller */
-    int32_t delta = (error_dw * ADCMON_KP_NUM) / ADCMON_KP_DEN;
+    delta = (errorDw * ADC_MONITOR_KP_NUM) / ADC_MONITOR_KP_DEN;
 
-    int32_t new_val = (int32_t)_dac_val + delta;
-    if (new_val < 0)               new_val = 0;
-    if (new_val > ADCMON_DAC_MAX)  new_val = (int32_t)ADCMON_DAC_MAX;
+    newValue = (int32_t)gDacValue + delta;
+    if (newValue < 0) {
+        newValue = 0;
+    }
+    else if (newValue > (int32_t)ADC_MONITOR_DAC_MAX) {
+        newValue = (int32_t)ADC_MONITOR_DAC_MAX;
+    }
+    else {
+        // No action required
+    }
 
-    _dac_val = (uint32_t)new_val;
-    HAL_DAC_SetValue(_hdac, DAC_CHANNEL_1, DAC_ALIGN_12B_R, _dac_val);
+    gDacValue = (uint32_t)newValue;
+
+    if (NULL != gDac) {
+        (void)HAL_DAC_SetValue(gDac, DAC_CHANNEL_1, DAC_ALIGN_12B_R, gDacValue);
+    }
 }
 
-uint16_t adc_monitor_get_power_dw(void) {
-    return _power_dw;
+/**
+ * @brief  Return the last computed output power in deci-watts.
+ * @retval Output power in deci-watts.
+ */
+uint16_t adcMonitor_getPowerDw(void) {
+    return gPowerDw;
 }
 
-void adc_monitor_dac_zero(void) {
-    _dac_val  = 0U;
-    _power_dw = 0U;
-    HAL_DAC_SetValue(_hdac, DAC_CHANNEL_1, DAC_ALIGN_12B_R, 0U);
+/**
+ * @brief  Force DAC to zero.
+ * @retval 0 on success, error code otherwise
+ */
+void adcMonitor_dacZero(void) {
+    gDacValue = 0U;
+    gPowerDw = 0U;
+
+    if (NULL != gDac) {
+        (void)HAL_DAC_SetValue(gDac, DAC_CHANNEL_1, DAC_ALIGN_12B_R, 0U);
+    }
 }
 
-bool adc_monitor_rem_ok(bool bipolar) {
-    if (bipolar) return true;   // no REM plate in bipolar mode
-    uint16_t rem = _data.raw[ADCMON_CH_REM];
-    return (rem >= ADCMON_REM_ADC_MIN && rem <= ADCMON_REM_ADC_MAX);
+/**
+ * @brief  Return true if REM is OK.
+ * @param  isBipolar  Pass true when channel is bipolar.
+ * @retval true if REM is acceptable, false otherwise.
+ */
+bool adcMonitor_isRemOk(bool isBipolar) {
+    bool isRemOk = true;
+    uint16_t remValue = 0U;
+
+    if (false == isBipolar) {
+        remValue = gAdcData.raw[ADC_MONITOR_CH__REM];
+        isRemOk = ((remValue >= ADC_MONITOR_REM_ADC_MIN) && (remValue <= ADC_MONITOR_REM_ADC_MAX));
+    }
+
+    return isRemOk;
 }
 
-bool adc_monitor_overcurrent(void) {
-    return (_data.raw[ADCMON_CH_CURRENT1] > ADCMON_OVERCURRENT_THR ||
-            _data.raw[ADCMON_CH_CURRENT2] > ADCMON_OVERCURRENT_THR);
+/**
+ * @brief  Return true if any current sensor exceeds the threshold.
+ * @retval true if overcurrent is detected, false otherwise.
+ */
+bool adcMonitor_isOvercurrent(void) {
+    return ((gAdcData.raw[ADC_MONITOR_CH__CURRENT1] > ADC_MONITOR_OVERCURRENT_THR) ||
+            (gAdcData.raw[ADC_MONITOR_CH__CURRENT2] > ADC_MONITOR_OVERCURRENT_THR));
 }
 
-bool adc_monitor_overtemp(void) {
-    return (_data.raw[ADCMON_CH_TEMP] > ADCMON_OVERTEMP_THR);
+/**
+ * @brief  Return true if the heat-sink temperature exceeds the threshold.
+ * @retval true if overtemperature is detected, false otherwise.
+ */
+bool adcMonitor_isOvertemp(void) {
+    return (gAdcData.raw[ADC_MONITOR_CH__TEMP] > ADC_MONITOR_OVERTEMP_THR);
 }

@@ -1,17 +1,21 @@
 /**
+ * ╔═══════════════════════════════════════════════════════════════╗
+ * ║                   Electrosurgical Unit                        ║
+ * ╚═══════════════════════════════════════════════════════════════╝
+ *
  * @file   safety.h
  * @brief  Safety interlock — REM, overcurrent, overtemperature.
  *
  * @details
- *  All checks run against the latest ADC scan from adc_monitor.
- *  On any fault the caller (app_fsm) must:
- *    1. Immediately call rf_gen_disable_all().
- *    2. Call adc_monitor_dac_zero().
+ *  All checks run against the latest ADC scan from adcMonitor.
+ *  On any fault the caller (appFsm) must:
+ *    1. Immediately call rfGen_disableAll().
+ *    2. Call adcMonitor_dacZero().
  *    3. Transition to ESU_STATE_ERROR or ESU_STATE_REM_ALARM.
  */
 
-#ifndef _SAFETY_H
-#define _SAFETY_H
+#ifndef SAFETY_H_
+#define SAFETY_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -19,40 +23,50 @@ extern "C" {
 
 #include <stdbool.h>
 #include <stdint.h>
+
 #include "adc_monitor.h"
 
-/** @brief  Fault bitmask returned by safety_check(). */
-typedef enum {
-    SAFETY_OK          = 0x00,
-    SAFETY_FAULT_REM   = 0x01,
-    SAFETY_FAULT_OC    = 0x02,   // overcurrent
-    SAFETY_FAULT_OT    = 0x04,   // overtemperature
+/**
+ * @brief Fault bitmask returned by safetyCheck().
+ */
+typedef enum
+{
+    Safety_Fault_e_OK = 0x00U,
+    Safety_Fault_e_REM = 0x01U,
+    Safety_Fault_e_OC = 0x02U,
+    Safety_Fault_e_OT = 0x04U
 } Safety_Fault_e;
 
 /**
  * @brief  Run all safety checks in one call.
- * @param  bipolar  Set true when operating in bipolar mode (skips REM check).
- * @return Bitmask of active faults (0 = all OK).
+ * @param  isBipolar Set true when operating in bipolar mode.
+ * @retval 0 on success, error code otherwise
  */
-Safety_Fault_e safety_check(bool bipolar);
+Safety_Fault_e safetyCheck(bool isBipolar);
 
 /**
  * @brief  Return true if the REM electrode contact is acceptable.
+ * @param  isBipolar Set true when operating in bipolar mode.
+ * @retval true if REM is OK, false otherwise.
  */
-bool safety_rem_ok(bool bipolar);
+bool safetyIsRemOk(bool isBipolar);
 
 /**
  * @brief  Return true if an overcurrent condition is detected.
+ * @param  None
+ * @retval true if overcurrent is detected, false otherwise.
  */
-bool safety_overcurrent(void);
+bool safetyIsOvercurrent(void);
 
 /**
  * @brief  Return true if a thermal overload is detected.
+ * @param  None
+ * @retval true if overtemperature is detected, false otherwise.
  */
-bool safety_overtemp(void);
+bool safetyIsOvertemp(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _SAFETY_H */
+#endif /* SAFETY_H_ */

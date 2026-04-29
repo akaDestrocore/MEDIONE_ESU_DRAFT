@@ -2,368 +2,436 @@
  * ╔═══════════════════════════════════════════════════════════════╗
  * ║                   Electrosurgical Unit                        ║
  * ╚═══════════════════════════════════════════════════════════════╝
- * 
+ *
  * @file   app_fsm.c
  * @brief  ESU application state machine.
  *
  * @details
  *  This module owns the ESU system state and orchestrates all other
- *  modules.  It does NOT contain any hardware register access —
- *  that is the job of rf_generator, adc_monitor, pedal and uart_protocol.
- *
- *  Call sequence from main():
- *    app_fsm_init(...)   — once, after all HAL inits
- *    loop:
- *      app_fsm_process() — main loop body
- *
- *  ISR hooks:
- *    app_fsm_poly_tick() — from HAL_TIM_PeriodElapsedCallback (TIM5)
- *    app_fsm_blend_tick()— from HAL_TIM_PeriodElapsedCallback (TIM2)
- *    app_fsm_idle_isr()  — from USART3_IRQHandler on IDLE flag
+ *  modules. It does not contain direct hardware register access.
  */
 
 #include "app_fsm.h"
-#include "rf_generator.h"
-#include "adc_monitor.h"
-#include "safety.h"
-#include "pedal.h"
-#include "uart_protocol.h"
-#include <string.h>
 
-/* ----------------------------------------------------------------
- * Private state
- * ----------------------------------------------------------------*/
-static ESU_State_e    _state        = ESU_STATE_IDLE;
-static ESU_Channel_e  _channel      = CHANNEL_MONO1;
-static ESU_Settings_t _settings     = {0};
-static uint8_t        _errors       = ESU_ERR_NONE;
 
-/* Polypectomy timing counters (driven by TIM5 at 100 Hz) */
-static uint16_t _poly_tick  = 0;
-static uint16_t _poly_cut_t = 4;    // 40 ms
-static uint16_t _poly_cog_t = 50;   // 500 ms
+/* Private variables ---------------------------------------------------------*/
+static AppDefs_EsuState_e gState = AppDefs_EsuState_Idle;
+static AppDefs_Channel_e gChannel = AppDefs_Channel_Mono1;
+static AppDefs_EsuSettings_t gSettings = {0};
+static uint8_t gErrors = ESU_ERR_NONE;
 
-/* Nextion status is pushed only when state or measured power changes */
-static ESU_State_e _last_sent_state  = (ESU_State_e)0xFF;
-static uint16_t    _last_sent_pwr_dw = 0xFFFF;
+static uint16_t gPolyTick = 0U;
+static uint16_t gPolyCutTicks = 4U;    // 40 ms
+static uint16_t gPolyCoagTicks = 50U;   // 500 ms
 
-/* ----------------------------------------------------------------
- * Private helpers
- * ----------------------------------------------------------------*/
+static AppDefs_EsuState_e gLastSentState = (AppDefs_EsuState_e)0xFF;
+static uint16_t gLastSentPowerDw = 0xFFFFU;
 
-static void _all_off(void)
+/* -------------------------------------------------------------------------- */
+/* Private helpers                                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+  * @brief Disable all active outputs.
+  * @param None
+  * @retval 0 on success, error code otherwise
+  */
+static void appFsm_allOff(void)
 {
-    rf_gen_disable_all();
-    rf_gen_audio_stop();
-    adc_monitor_dac_zero();
+    rf_genDisableAll();
+    rf_genAudioStop();
+    adcMonitor_dacZero();
 }
 
-static void _enter_state(ESU_State_e new_state)
+/**
+  * @brief Enter a new application state.
+  * @param newState New ESU state.
+  * @retval 0 on success, error code otherwise
+  */
+static void appFsm_enterState(AppDefs_EsuState_e newState)
 {
-    /* ---- Exit actions ---- */
-    switch (_state) {
-    case ESU_STATE_CUT_ACTIVE:
-    case ESU_STATE_POLYPECTOMY_CUT:
-        rf_gen_disable_cut();
-        rf_gen_audio_stop();
-        adc_monitor_dac_zero();
-        break;
-    case ESU_STATE_COAG_ACTIVE:
-    case ESU_STATE_POLYPECTOMY_COAG:
-        rf_gen_disable_coag();
-        rf_gen_audio_stop();
-        adc_monitor_dac_zero();
-        break;
-    case ESU_STATE_BIPOLAR_CUT:
-        rf_gen_disable_bipolar();
-        rf_gen_audio_stop();
-        adc_monitor_dac_zero();
-        break;
-    case ESU_STATE_BIPOLAR_COAG:
-        rf_gen_disable_bipolar();
-        rf_gen_audio_stop();
-        adc_monitor_dac_zero();
-        break;
-    default:
-        break;
+    switch (gState) {
+        case AppDefs_EsuState_CutActive:
+        case AppDefs_EsuState_PolypectomyCut: {
+            rf_genDisableCut();
+            rf_genAudioStop();
+            adcMonitor_dacZero();
+            break;
+        }
+
+        case AppDefs_EsuState_CoagActive:
+        case AppDefs_EsuState_PolypectomyCoag: {
+            rf_genDisableCoag();
+            rf_genAudioStop();
+            adcMonitor_dacZero();
+            break;
+        }
+
+        case AppDefs_EsuState_BipolarCut:
+        case AppDefs_EsuState_BipolarCoag: {
+            rf_genDisableBipolar();
+            rf_genAudioStop();
+            adcMonitor_dacZero();
+            break;
+        }
+
+        default:{
+            break;
+        }
     }
 
-    _state = new_state;
+    gState = newState;
 
-    /* ---- Entry actions ---- */
-    switch (new_state) {
+    switch (newState) {
+        case AppDefs_EsuState_Idle: {
+            appFsm_allOff();
+            gErrors &= (uint8_t)~(ESU_ERR_OVERCURRENT | ESU_ERR_OVERTEMP);
+            uart_protoSendPage("mainPage");
+            break;
+        }
 
-    case ESU_STATE_IDLE:
-        _all_off();
-        /* Clear latched errors that were caused by the now-idle output */
-        _errors &= ~(ESU_ERR_OVERCURRENT | ESU_ERR_OVERTEMP);
-        uart_proto_send_page("mainPage");
-        break;
+        case AppDefs_EsuState_CutActive: {
+            rf_genConfigureCut((AppDefs_CutMode_e)gSettings.cut_mode);
+            rf_genCnableCut();
+            rf_genAudioStart(true);
+            uart_protoSendPage("activePage");
+            break;
+        }
 
-    case ESU_STATE_CUT_ACTIVE:
-        rf_gen_configure_cut((CutMode_e)_settings.cut_mode);
-        rf_gen_enable_cut();
-        rf_gen_audio_start(true);
-        uart_proto_send_page("activePage");
-        break;
+        case AppDefs_EsuState_CoagActive: {
+            rf_gen_configure_coag((AppDefs_CutMode_e)gSettings.coag_mode);
+            rf_gen_enable_coag();
+            rf_genAudioStart(false);
+            uart_protoSendPage("activePage");
+            break;
+        }
 
-    case ESU_STATE_COAG_ACTIVE:
-        rf_gen_configure_coag((CoagMode_e)_settings.coag_mode);
-        rf_gen_enable_coag();
-        rf_gen_audio_start(false);
-        uart_proto_send_page("activePage");
-        break;
+        case AppDefs_EsuState_BipolarCut: {
+            rf_genConfigureBipolarCut((AppDefs_BipolarCutMode_e)gSettings.cut_mode);
+            rf_genEnableBipolar();
+            rf_genAudioStart(true);
+            break;
+        }
 
-    case ESU_STATE_BIPOLAR_CUT:
-        rf_gen_configure_bipolar_cut((BipolarCutMode_e)_settings.cut_mode);
-        rf_gen_enable_bipolar();
-        rf_gen_audio_start(true);
-        break;
+        case AppDefs_EsuState_BipolarCoag: {
+            rf_genConfigureBipolarCoag((AppDefs_BipolarCoagMode_e)gSettings.coag_mode);
+            rf_genEnableBipolar();
+            rf_genAudioStart(false);
+            break;
+        }
 
-    case ESU_STATE_BIPOLAR_COAG:
-        rf_gen_configure_bipolar_coag((BipolarCoagMode_e)_settings.coag_mode);
-        rf_gen_enable_bipolar();
-        rf_gen_audio_start(false);
-        break;
+        case AppDefs_EsuState_PolypectomyCut: {
+            gPolyTick = 0U;
+            rf_genConfigureCut(AppDefs_CutMode_Polypectomy);
+            rf_genCnableCut();
+            rf_genAudioStart(true);
+            break;
+        }
 
-    case ESU_STATE_POLYPECTOMY_CUT:
-        _poly_tick = 0;
-        rf_gen_configure_cut(CUT_MODE_POLYPECTOMY);
-        rf_gen_enable_cut();
-        rf_gen_audio_start(true);
-        break;
+        case AppDefs_EsuState_PolypectomyCoag: {
+            break;
+        }
 
-    case ESU_STATE_POLYPECTOMY_COAG:
-        /* Driven by poly_tick ISR; entry already handled there */
-        break;
+        case AppDefs_EsuState_RemAlarm: {
+            appFsm_allOff();
+            gErrors |= ESU_ERR_REM_ALARM;
+            uart_protoSendPage("remAlarmPage");
+            break;
+        }
 
-    case ESU_STATE_REM_ALARM:
-        _all_off();
-        _errors |= ESU_ERR_REM_ALARM;
-        uart_proto_send_page("remAlarmPage");
-        break;
+        case AppDefs_EsuState_Error: {
+            appFsm_allOff();
+            uart_protoSendPage("errorPage");
+            break;
+        }
 
-    case ESU_STATE_ERROR:
-        _all_off();
-        uart_proto_send_page("errorPage");
-        break;
-
-    default:
-        break;
+        default:
+            break;
     }
 }
 
-/* ----------------------------------------------------------------
- * Public API
- * ----------------------------------------------------------------*/
+/* -------------------------------------------------------------------------- */
+/* Public API                                                                 */
+/* -------------------------------------------------------------------------- */
 
-void app_fsm_init(const RFGen_Timers_t *timers,
-                  ADC_HandleTypeDef    *hadc,
-                  DAC_HandleTypeDef    *hdac,
-                  UART_HandleTypeDef   *huart_nextion)
+/**
+  * @brief  One-time initialisation. Call after all HAL and MX inits.
+  * @param  pTimers RF generator timer bundle.
+  * @param  pHadc ADC1 handle.
+  * @param  pHdac DAC handle.
+  * @param  pUartNextion USART3 handle.
+  * @retval 0 on success, error code otherwise
+  */
+void app_fsm_init(const RFGen_Timers_t* pTimers,
+                  ADC_HandleTypeDef* pHadc,
+                  DAC_HandleTypeDef* pHdac,
+                  UART_HandleTypeDef* pUartNextion)
 {
-    /* Initialise sub-modules */
-    rf_gen_init(timers);
-    adc_monitor_init(hadc, hdac);
+    rf_gen_init(pTimers);
+    adcMonitor_init(pHadc, pHdac);
     pedal_init();
-    uart_proto_init(huart_nextion);
+    uart_proto_init(pUartNextion);
 
-    /* Default settings: Mono1, Pure Cut 30 W, Soft Coag 30 W */
-    memset(&_settings, 0, sizeof(_settings));
-    _settings.cut_mode     = CUT_MODE_PURE;
-    _settings.cut_level    = 1;
-    _settings.cut_power_w  = 30;
-    _settings.coag_mode    = COAG_MODE_SOFT;
-    _settings.coag_level   = 1;
-    _settings.coag_power_w = 30;
-    _channel = CHANNEL_MONO1;
+    memset(&gSettings, 0, sizeof(gSettings));
+    gSettings.cut_mode = AppDefs_CutMode_Pure;
+    gSettings.cut_level = 1U;
+    gSettings.cut_powerW = 30U;
+    gSettings.coag_mode = AppDefs_CoagMode_Soft;
+    gSettings.coag_level = 1U;
+    gSettings.coag_powerW = 30U;
+    gSettings.poly_level = 1U;
 
-    _state  = ESU_STATE_IDLE;
-    _errors = ESU_ERR_NONE;
+    gChannel = AppDefs_Channel_Mono1;
+    gState = AppDefs_EsuState_Idle;
+    gErrors = ESU_ERR_NONE;
+    gPolyTick = 0U;
+    gPolyCutTicks = 4U;
+    gPolyCoagTicks = POLY_COAG_TICKS(gSettings.poly_level);
+    gLastSentState = (AppDefs_EsuState_e)0xFF;
+    gLastSentPowerDw = 0xFFFFU;
 
-    _all_off();
+    appFsm_allOff();
 
-    /* Greet the display */
-    uart_proto_send_page("mainPage");
+    uart_protoSendPage("mainPage");
 }
 
-void app_fsm_process(void)
+/**
+  * @brief  Main loop body. Call from while(1) in main().
+  * @param  None
+  * @retval 0 on success, error code otherwise
+  */
+void app_fsmProcess(void)
 {
-    /* 1. Scan ADC */
-    adc_monitor_scan();
+    AppDefs_EsuPacket_t pkt;
+    bool isBipolar = false;
+    Safety_Fault_e faults;
+    bool cutPressed = false;
+    bool coagPressed = false;
 
-    /* 2. Update debounce */
+    adcMonitor_scan();
     pedal_update();
 
-    /* 3. Receive settings from Nextion */
-    ESU_Packet_t pkt;
     if (uart_proto_get_packet(&pkt)) {
-        /* Only update when idle — prevent mid-operation reconfiguration */
-        if (_state == ESU_STATE_IDLE) {
-            _channel              = (ESU_Channel_e)pkt.channel;
-            _settings.cut_mode    = pkt.cut_mode;
-            _settings.cut_level   = pkt.cut_level;
-            _settings.cut_power_w = pkt.cut_power_w;
-            _settings.coag_mode   = pkt.coag_mode;
-            _settings.coag_level  = pkt.coag_level;
-            _settings.coag_power_w= pkt.coag_power_w;
-            _settings.poly_level  = pkt.poly_level;
+        if (AppDefs_EsuState_Idle == gState) {
+            gChannel = (AppDefs_Channel_e)pkt.channel;
+            gSettings.cut_mode = pkt.cut_mode;
+            gSettings.cut_level = pkt.cut_level;
+            gSettings.cut_powerW = pkt.cut_powerW;
+            gSettings.coag_mode = pkt.coag_mode;
+            gSettings.coag_level = pkt.coag_level;
+            gSettings.coag_powerW = pkt.coag_powerW;
+            gSettings.poly_level = pkt.poly_level;
 
-            /* Pre-compute polypectomy timing from level */
-            _poly_cut_t = 4U;   // 40 ms
-            _poly_cog_t = POLY_COAG_TICKS(_settings.poly_level);
+            gPolyCutTicks = 4U;
+            gPolyCoagTicks = POLY_COAG_TICKS(gSettings.poly_level);
         }
     }
 
-    /* 4. Safety checks */
-    bool is_bipolar = (_channel == CHANNEL_BIPOLAR);
-    Safety_Fault_e faults = safety_check(is_bipolar);
+    isBipolar = (AppDefs_Channel_Bipolar == gChannel);
+    faults = safety_check(isBipolar);
 
-    if (faults & SAFETY_FAULT_REM) {
-        if (_state != ESU_STATE_REM_ALARM && _state != ESU_STATE_ERROR) {
-            _enter_state(ESU_STATE_REM_ALARM);
+    if (0U != (faults & SAFETY_FAULT_REM)) {
+        if ((AppDefs_EsuState_RemAlarm != gState) && (AppDefs_EsuState_Error != gState)) {
+            appFsm_enterState(AppDefs_EsuState_RemAlarm);
         }
-        goto push_status;
-    }
-    /* REM recovered */
-    if (_state == ESU_STATE_REM_ALARM && !(faults & SAFETY_FAULT_REM)) {
-        _enter_state(ESU_STATE_IDLE);
+        goto pushStatus;
     }
 
-    if (faults & SAFETY_FAULT_OC) {
-        _errors |= ESU_ERR_OVERCURRENT;
-        _enter_state(ESU_STATE_ERROR);
-        goto push_status;
-    }
-    if (faults & SAFETY_FAULT_OT) {
-        _errors |= ESU_ERR_OVERTEMP;
-        _enter_state(ESU_STATE_ERROR);
-        goto push_status;
+    if ((AppDefs_EsuState_RemAlarm == gState) && (0U == (faults & SAFETY_FAULT_REM))) {
+        appFsm_enterState(AppDefs_EsuState_Idle);
     }
 
-    if (_state == ESU_STATE_ERROR) goto push_status;
+    if (0U != (faults & SAFETY_FAULT_OC)) {
+        gErrors |= ESU_ERR_OVERCURRENT;
+        appFsm_enterState(AppDefs_EsuState_Error);
+        goto pushStatus;
+    }
 
-    /* 5. Switch state machine */
-    bool cut_on  = pedal_cut_pressed(_channel);
-    bool coag_on = pedal_coag_pressed(_channel);
+    if (0U != (faults & SAFETY_FAULT_OT)) {
+        gErrors |= ESU_ERR_OVERTEMP;
+        appFsm_enterState(AppDefs_EsuState_Error);
+        goto pushStatus;
+    }
 
-    switch (_state) {
+    if (AppDefs_EsuState_Error == gState) {
+        goto pushStatus;
+    }
 
-    case ESU_STATE_IDLE:
-        if (is_bipolar) {
-            if (pedal_bipolar_auto() &&
-                _settings.coag_mode == BICOAG_MODE_AUTO_START) {
-                _enter_state(ESU_STATE_BIPOLAR_COAG);
-            } else if (cut_on) {
-                _enter_state(ESU_STATE_BIPOLAR_CUT);
-            } else if (coag_on) {
-                _enter_state(ESU_STATE_BIPOLAR_COAG);
-            }
-        } else {
-            if (cut_on) {
-                if (_settings.cut_mode == CUT_MODE_POLYPECTOMY) {
-                    _enter_state(ESU_STATE_POLYPECTOMY_CUT);
+    cutPressed = pedal_cut_pressed(gChannel);
+    coagPressed = pedal_coag_pressed(gChannel);
+
+    switch (gState) {
+        case AppDefs_EsuState_Idle:
+            if (true == isBipolar) {
+                if ((true == pedal_bipolar_auto()) &&
+                    (AppDefs_BipolarCoagMode_AutoStart == gSettings.coag_mode)) {
+                    appFsm_enterState(AppDefs_EsuState_BipolarCoag);
+                } else if (true == cutPressed) {
+                    appFsm_enterState(AppDefs_EsuState_BipolarCut);
+                } else if (true == coagPressed) {
+                    appFsm_enterState(AppDefs_EsuState_BipolarCoag);
                 } else {
-                    _enter_state(ESU_STATE_CUT_ACTIVE);
+                    // No action required
                 }
-            } else if (coag_on) {
-                _enter_state(ESU_STATE_COAG_ACTIVE);
             }
+            else {
+                if (true == cutPressed) {
+                    if (AppDefs_CutMode_Polypectomy == gSettings.cut_mode) {
+                        appFsm_enterState(AppDefs_EsuState_PolypectomyCut);
+                    }
+                    else {
+                        appFsm_enterState(AppDefs_EsuState_CutActive);
+                    }
+                }
+                else if (true == coagPressed) {
+                    appFsm_enterState(AppDefs_EsuState_CoagActive);
+                }
+                else {
+                    // No action required
+                }
+            }
+            break;
+
+        case AppDefs_EsuState_CutActive:
+            adcMonitor_powerLoop(gSettings.cut_powerW);
+            if (false == cutPressed) {
+                appFsm_enterState(AppDefs_EsuState_Idle);
+            }
+            break;
+
+        case AppDefs_EsuState_CoagActive:
+            adcMonitor_powerLoop(gSettings.coag_powerW);
+            if (false == coagPressed) {
+                appFsm_enterState(AppDefs_EsuState_Idle);
+            }
+            break;
+
+        case AppDefs_EsuState_BipolarCut:
+            adcMonitor_powerLoop(gSettings.cut_powerW);
+            if (false == cutPressed) {
+                appFsm_enterState(AppDefs_EsuState_Idle);
+            }
+            break;
+
+        case AppDefs_EsuState_BipolarCoag:
+            adcMonitor_powerLoop(gSettings.coag_powerW);
+            if (AppDefs_BipolarCoagMode_AutoStart == gSettings.coag_mode) {
+                if (false == pedal_bipolar_auto()) {
+                    appFsm_enterState(AppDefs_EsuState_Idle);
+                }
+            }
+            else {
+                if (false == coagPressed) {
+                    appFsm_enterState(AppDefs_EsuState_Idle);
+                }
+            }
+            break;
+
+        case AppDefs_EsuState_PolypectomyCut:
+        case AppDefs_EsuState_PolypectomyCoag: {
+            uint16_t targetPowerW;
+
+            targetPowerW = (AppDefs_EsuState_PolypectomyCut == gState) ? gSettings.cut_powerW : gSettings.coag_powerW;
+
+            adcMonitor_powerLoop(targetPowerW);
+
+            if (false == cutPressed) {
+                appFsm_enterState(AppDefs_EsuState_Idle);
+            }
+            break;
         }
-        break;
 
-    case ESU_STATE_CUT_ACTIVE:
-        adc_monitor_power_loop(_settings.cut_power_w);
-        if (!cut_on) _enter_state(ESU_STATE_IDLE);
-        break;
-
-    case ESU_STATE_COAG_ACTIVE:
-        adc_monitor_power_loop(_settings.coag_power_w);
-        if (!coag_on) _enter_state(ESU_STATE_IDLE);
-        break;
-
-    case ESU_STATE_BIPOLAR_CUT:
-        adc_monitor_power_loop(_settings.cut_power_w);
-        if (!cut_on) _enter_state(ESU_STATE_IDLE);
-        break;
-
-    case ESU_STATE_BIPOLAR_COAG:
-        adc_monitor_power_loop(_settings.coag_power_w);
-        if (_settings.coag_mode == BICOAG_MODE_AUTO_START) {
-            if (!pedal_bipolar_auto()) _enter_state(ESU_STATE_IDLE);
-        } else {
-            if (!coag_on) _enter_state(ESU_STATE_IDLE);
+        default: {
+            break;
         }
-        break;
-
-    case ESU_STATE_POLYPECTOMY_CUT:
-    case ESU_STATE_POLYPECTOMY_COAG: {
-        /* Choose correct target power for the current sub-phase */
-        uint16_t pw = (_state == ESU_STATE_POLYPECTOMY_CUT)
-                      ? _settings.cut_power_w
-                      : _settings.coag_power_w;
-        adc_monitor_power_loop(pw);
-        /* Foot release always stops polypectomy immediately */
-        if (!cut_on) _enter_state(ESU_STATE_IDLE);
-        break;
     }
 
-    default:
-        break;
-    }
+pushStatus:
+    {
+        uint16_t powerDw;
 
-push_status:;
-    /* 6. Push status to Nextion only when something changed */
-    uint16_t pwr_dw = adc_monitor_get_power_dw();
-    if (_state != _last_sent_state || pwr_dw != _last_sent_pwr_dw) {
-        uart_proto_push_status(_state, pwr_dw, _errors);
-        _last_sent_state  = _state;
-        _last_sent_pwr_dw = pwr_dw;
+        powerDw = adcMonitor_getPowerDw();
+
+        if ((gState != gLastSentState) || (powerDw != gLastSentPowerDw)) {
+            uart_proto_push_status(gState, powerDw, gErrors);
+            gLastSentState = gState;
+            gLastSentPowerDw = powerDw;
+        }
     }
 }
 
-void app_fsm_poly_tick(void) {
-    if (_state != ESU_STATE_POLYPECTOMY_CUT &&
-        _state != ESU_STATE_POLYPECTOMY_COAG) return;
+/**
+  * @brief  Polypectomy sub-state tick.
+  * @param  None
+  * @retval 0 on success, error code otherwise
+  */
+void app_fsmPolyTick(void)
+{
+    if ((AppDefs_EsuState_PolypectomyCut != gState) &&
+        (AppDefs_EsuState_PolypectomyCoag != gState)) {
+        return;
+    }
 
-    _poly_tick++;
+    gPolyTick++;
 
-    if (_state == ESU_STATE_POLYPECTOMY_CUT) {
-        if (_poly_tick >= _poly_cut_t) {
-            _poly_tick = 0;
-            rf_gen_disable_cut();
-            rf_gen_configure_coag(COAG_MODE_SOFT);
+    if (AppDefs_EsuState_PolypectomyCut == gState) {
+        if (gPolyTick >= gPolyCutTicks) {
+            gPolyTick = 0U;
+            rf_genDisableCut();
+            rf_gen_configure_coag(AppDefs_CoagMode_Soft);
             rf_gen_enable_coag();
-            rf_gen_audio_start(false);
-            _state = ESU_STATE_POLYPECTOMY_COAG;
+            rf_genAudioStart(false);
+            gState = AppDefs_EsuState_PolypectomyCoag;
         }
-    } else {
-        if (_poly_tick >= _poly_cog_t) {
-            _poly_tick = 0;
-            rf_gen_disable_coag();
-            rf_gen_configure_cut(CUT_MODE_POLYPECTOMY);
-            rf_gen_enable_cut();
-            rf_gen_audio_start(true);
-            _state = ESU_STATE_POLYPECTOMY_CUT;
+    }
+    else {
+        if (gPolyTick >= gPolyCoagTicks) {
+            gPolyTick = 0U;
+            rf_genDisableCoag();
+            rf_genConfigureCut(AppDefs_CutMode_Polypectomy);
+            rf_genCnableCut();
+            rf_genAudioStart(true);
+            gState = AppDefs_EsuState_PolypectomyCut;
         }
     }
 }
 
-void app_fsm_blend_tick(void) {
-    rf_gen_blend_tick_isr();
+/**
+  * @brief  Blend envelope tick.
+  * @param  None
+  * @retval 0 on success, error code otherwise
+  */
+void app_fsmBlendTick(void)
+{
+    rf_genBlendTickIsr();
 }
 
-void app_fsm_idle_isr(void) {
-    uart_proto_idle_isr();
+/**
+  * @brief  USART3 IDLE line callback.
+  * @param  None
+  * @retval 0 on success, error code otherwise
+  */
+void app_fsmIdleIsr(void)
+{
+    uart_protoIdleIsr();
 }
 
-/* ----------------------------------------------------------------
- * Getters
- * ----------------------------------------------------------------*/
-ESU_State_e app_fsm_get_state(void) { 
-    return _state; 
-
+/**
+  * @brief  Return current ESU state.
+  * @param  None
+  * @retval 0 on success, error code otherwise
+  */
+AppDefs_EsuState_e app_fsmGetState(void)
+{
+    return gState;
 }
-uint8_t app_fsm_get_errors(void) { 
-    return _errors; 
+
+/**
+  * @brief  Return current error bitmask.
+  * @param  None
+  * @retval 0 on success, error code otherwise
+  */
+uint8_t app_fsmGetErrors(void)
+{
+    return gErrors;
 }

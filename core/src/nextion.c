@@ -2,151 +2,189 @@
  * ╔═══════════════════════════════════════════════════════════════╗
  * ║                   Electrosurgical Unit                        ║
  * ╚═══════════════════════════════════════════════════════════════╝
+ *
  * @file    nextion.c
  * @brief   Nextion display USART3 DMA + IDLE driver.
  */
 
 #include "nextion.h"
 
-/* Private variables ---------------------------------------------------------*/
-static UART_HandleTypeDef *_huart = NULL;
-static uint8_t _dma_buf[NEXTION_RX_BUF_SIZE];
-static uint8_t _pkt_buf[NEXTION_RX_BUF_SIZE];
-static volatile uint16_t _pkt_len = 0;
-static volatile bool _pkt_ready = false;
-DMA_HandleTypeDef hdma_usart3_rx;
+#include <stdio.h>
+#include <string.h>
 
-// Nextion termination bytes
-static const uint8_t _term[3] = {0xFF, 0xFF, 0xFF};
+/* -------------------------------------------------------------------------- */
+/* Module state                                                               */
+/* -------------------------------------------------------------------------- */
 
+static UART_HandleTypeDef* gUart = NULL;
+static uint8_t gDmaBuf[NEXTION_RX_BUF_SIZE];
+static uint8_t gPktBuf[NEXTION_RX_BUF_SIZE];
+static volatile uint16_t gPktLen = 0U;
+static volatile bool gPktReady = false;
 
-/* ----------------------------------------------------------------
- * Public API
- * ----------------------------------------------------------------*/
+static const uint8_t gTerm[3U] = {0xFFU, 0xFFU, 0xFFU};
+
+/* -------------------------------------------------------------------------- */
+/* Private helpers                                                            */
+/* -------------------------------------------------------------------------- */
 
 /**
- * @brief  Initialise Nextion driver
- *         Enables IDLE interrupt and starts DMA circular receive
- * @param  pHuart   Must be &huart3 (USART3, 9600 baud)
+ * @brief  Transmit raw bytes over USART3.
+ * @param  pBuf Data buffer.
+ * @param  len Number of bytes.
  * @retval None
  */
-void nextion_init(UART_HandleTypeDef *pHuart) {
-    
-    _huart = pHuart;
-    _pkt_ready = false;
-    _pkt_len   = 0;
-
-    // Enable IDLE line interrupt so we know when a burst is done
-    __HAL_UART_ENABLE_IT(_huart, UART_IT_IDLE);
-
-    /* Start DMA circular receive into _dma_buf */
-    HAL_UART_Receive_DMA(_huart, _dma_buf, NEXTION_RX_BUF_SIZE);
+static void nextion_txRaw(const uint8_t* pBuf, uint16_t len)
+{
+    if ((NULL != gUart) && (NULL != pBuf) && (0U != len)) {
+        (void)HAL_UART_Transmit(gUart, (uint8_t*)pBuf, len, NEXTION_TX_TIMEOUT_MS);
+    }
 }
 
 /**
- * @brief  Called from USART3_IRQHandler on IDLE flag
- *         Calculates how many bytes DMA received since last call,
- *         copies them and validates as ESU_Packet_t.
+ * @brief  Append Nextion terminator and transmit the buffer.
+ * @param  pBuf Command buffer.
+ * @param  len Current command length.
+ * @param  maxLen Buffer capacity.
+ * @retval None
  */
-void nextion_idleCallback(void) {
-    
-    // Number of bytes still expected by DMA (decrements as data arrives)
-    uint16_t dma_remaining = (uint16_t)__HAL_DMA_GET_COUNTER(&hdma_usart3_rx);
-    uint16_t received = NEXTION_RX_BUF_SIZE - dma_remaining;
+static void nextion_appendTerminator(char* pBuf, uint16_t len, uint16_t maxLen)
+{
+    if ((NULL != pBuf) && ((uint16_t)(len + 3U) <= maxLen)) {
+        pBuf[len] = (char)gTerm[0U];
+        pBuf[len + 1U] = (char)gTerm[1U];
+        pBuf[len + 2U] = (char)gTerm[2U];
+        nextion_txRaw((const uint8_t*)pBuf, (uint16_t)(len + 3U));
+    }
+}
 
-    if (0 == received || received > NEXTION_RX_BUF_SIZE) {
+/* -------------------------------------------------------------------------- */
+/* Public API                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * @brief  Initialise Nextion driver.
+ * @param  pUart USART3 handle.
+ * @retval None
+ */
+void nextion_init(UART_HandleTypeDef* pUart)
+{
+    gUart = pUart;
+    gPktReady = false;
+    gPktLen = 0U;
+
+    if (NULL != gUart) {
+        __HAL_UART_ENABLE_IT(gUart, UART_IT_IDLE);
+        (void)HAL_UART_Receive_DMA(gUart, gDmaBuf, NEXTION_RX_BUF_SIZE);
+    }
+}
+
+/**
+ * @brief  USART3 IDLE-line callback.
+ * @param  None
+ * @retval None
+ */
+void nextion_cbIdleIsr(void)
+{
+    uint16_t remaining = 0U;
+    uint16_t received = 0U;
+    uint16_t index = 0U;
+    uint8_t xorValue = 0U;
+
+    if (NULL == gUart) {
         return;
     }
 
-    memcpy(_pkt_buf, _dma_buf, received);
-    _pkt_len = received;
+    remaining = (uint16_t)__HAL_DMA_GET_COUNTER(&hdma_usart3_rx);
+    received = (uint16_t)(NEXTION_RX_BUF_SIZE - remaining);
 
-    // Validate: correct size and header
-    if (NEXTION_PKT_SIZE == received && NEXTION_PKT_HEADER == _pkt_buf[0]) {
-        // Verify XOR checksum over bytes [0..10]
-        uint8_t xor = 0;
-        for (uint8_t i = 0; i < NEXTION_PKT_SIZE - 1U; i++) {
-            xor ^= _pkt_buf[i];
+    if ((0U == received) || (received > NEXTION_RX_BUF_SIZE)) {
+        return;
+    }
+
+    (void)memcpy(gPktBuf, gDmaBuf, received);
+    gPktLen = received;
+
+    if ((received == (uint16_t)NEXTION_PKT_SIZE) &&
+        (gPktBuf[0U] == NEXTION_PKT_HEADER)) {
+        for (index = 0U; index < (uint16_t)(NEXTION_PKT_SIZE - 1U); index++) {
+            xorValue ^= gPktBuf[index];
         }
-        if (xor == _pkt_buf[NEXTION_PKT_SIZE - 1U]) {
-            _pkt_ready = true;
+
+        if (xorValue == gPktBuf[(uint16_t)(NEXTION_PKT_SIZE - 1U)]) {
+            gPktReady = true;
         }
     }
 }
 
 /**
- * @brief  Check whether a valid settings packet has arrived
- * @param[out] pPkt Filled with the received settings
- * @retval true if a new packet is ready (flag cleared on return)
+ * @brief  Check whether a valid settings packet has arrived.
+ * @param  pPkt Receives the decoded settings packet.
+ * @retval true if a new packet is ready, false otherwise.
  */
-bool nextion_getPacket(ESU_Packet_t *pPkt)
+bool nextion_getPacket(AppDefs_EsuPacket_t* pPkt)
 {
-    if (true != _pkt_ready) {
+    if ((NULL == pPkt) || (false == gPktReady)) {
         return false;
     }
-    memcpy(pPkt, _pkt_buf, sizeof(ESU_Packet_t));
-    _pkt_ready = false;
+
+    (void)memcpy(pPkt, gPktBuf, sizeof(AppDefs_EsuPacket_t));
+    gPktReady = false;
+
     return true;
 }
 
 /**
  * @brief  Send a Nextion component value update.
- *         ex: nextion_sendVal("state", 1) → "state.val=1\xff\xff\xff"
- * @param[out] Component name string
- * @param[in] value Value to send
+ * @param  pComponent Nextion component name.
+ * @param  value Value to send.
+ * @retval None
  */
-void nextion_sendVal(const char *pComponent, int32_t value)
+void nextion_sendVal(const char* pComponent, int32_t value)
 {
-    if (NULL == _huart) {
+    char buffer[48];
+    int32_t len = 0;
+
+    if ((NULL == gUart) || (NULL == pComponent)) {
         return;
     }
 
-    char buf[48];
-    int  len = snprintf(buf, sizeof(buf), "%s.val=%ld", pComponent, (long)value);
-    if (len <= 0) return;
-
-    // Append Nextion 3-byte terminator
-    if ((size_t)(len + 3) < sizeof(buf)) {
-        buf[len]     = (char)0xFF;
-        buf[len + 1] = (char)0xFF;
-        buf[len + 2] = (char)0xFF;
-        HAL_UART_Transmit(_huart, (uint8_t *)buf, (uint16_t)(len + 3), NEXTION_TX_TIMEOUT_MS);
+    len = snprintf(buffer, sizeof(buffer), "%s.val=%ld", pComponent, (long)value);
+    if (0 < len) {
+        nextion_appendTerminator(buffer, (uint16_t)len, (uint16_t)sizeof(buffer));
     }
 }
 
 /**
  * @brief  Send a Nextion page-change command.
- *         ex: nextion_sendPage("pageMain") → "page pageMain\xff\xff\xff"
- * @param[out] pPageName   Name of the Nextion page to switch to
+ * @param  pPageName Page name.
+ * @retval None
  */
-void nextion_sendPage(const char *pPageName)
+void nextion_sendPage(const char* pPageName)
 {
-    if (NULL == _huart) {
+    char buffer[32];
+    int32_t len = 0;
+
+    if ((NULL == gUart) || (NULL == pPageName)) {
         return;
     }
 
-    char buf[32];
-    int  len = snprintf(buf, sizeof(buf), "page %s", pPageName);
-    if (len <= 0) return;
-
-    if ((size_t)(len + 3) < sizeof(buf)) {
-        buf[len]     = (char)0xFF;
-        buf[len + 1] = (char)0xFF;
-        buf[len + 2] = (char)0xFF;
-        HAL_UART_Transmit(_huart, (uint8_t *)buf, (uint16_t)(len + 3), NEXTION_TX_TIMEOUT_MS);
+    len = snprintf(buffer, sizeof(buffer), "page %s", pPageName);
+    if (0 < len) {
+        nextion_appendTerminator(buffer, (uint16_t)len, (uint16_t)sizeof(buffer));
     }
 }
 
 /**
- * @brief  Push current ESU state to the display
- *         Sends state, measured power and error flags
- * @param[in] state     Current ESU state
- * @param[in] power_dw  Measured power in deci-Watts
- * @param[in] errors    Error flags bitmask
+ * @brief  Push current ESU state to the display.
+ * @param  state Current ESU state.
+ * @param  powerDw Measured power in deci-watts.
+ * @param  errors Error flags bitmask.
+ * @retval None
  */
-void nextion_pushStatus(uint8_t state, uint16_t power_dw, uint8_t errors)
+void nextion_pushStatus(AppDefs_EsuState_e state, uint16_t powerDw, uint8_t errors)
 {
-    nextion_sendVal("state",  (int32_t)state);
-    nextion_sendVal("pwr",    (int32_t)power_dw);
-    nextion_sendVal("err",    (int32_t)errors);
+    nextion_sendVal("state", (int32_t)state);
+    nextion_sendVal("pwr", (int32_t)powerDw);
+    nextion_sendVal("err", (int32_t)errors);
 }

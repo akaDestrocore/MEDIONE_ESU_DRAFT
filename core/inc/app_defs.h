@@ -42,8 +42,8 @@
  *    LED Error              → PC4  (active-HIGH)
  */
 
-#ifndef _APP_DEFS_H
-#define _APP_DEFS_H
+#ifndef APP_DEFS_H_
+#define APP_DEFS_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -64,97 +64,105 @@ extern "C" {
 /* ----------------------------------------------------------------
  * Channel (which monopolar output or bipolar)
  * ----------------------------------------------------------------*/
-typedef enum {
-    CHANNEL_MONO1   = 0,
-    CHANNEL_MONO2   = 1,
-    CHANNEL_BIPOLAR = 2,
-    CHANNEL_COUNT
-} ESU_Channel_e;
+typedef enum
+{
+  AppDefs_Channel_Mono1   = 0,
+  AppDefs_Channel_Mono2   = 1,
+  AppDefs_Channel_Bipolar = 2,
+  AppDefs_Channel_Count
+} AppDefs_Channel_e;
 
 /* ----------------------------------------------------------------
  * Monopolar CUT modes
  * ----------------------------------------------------------------*/
-typedef enum {
-    CUT_MODE_PURE           = 0,
-    CUT_MODE_BLEND1         = 1,
-    CUT_MODE_BLEND2         = 2,
-    CUT_MODE_BLEND3         = 3,
-    CUT_MODE_POLYPECTOMY    = 4,
-    CUT_MODE_COUNT
-} CutMode_e;
+typedef enum
+{
+  AppDefs_CutMode_Pure        = 0,
+  AppDefs_CutMode_Blend1      = 1,
+  AppDefs_CutMode_Blend2      = 2,
+  AppDefs_CutMode_Blend3      = 3,
+  AppDefs_CutMode_Polypectomy = 4,
+  AppDefs_CutMode_Count
+} AppDefs_CutMode_e;
 
 /* ----------------------------------------------------------------
  * Monopolar COAG modes
  * ----------------------------------------------------------------*/
-typedef enum {
-    COAG_MODE_SOFT      = 0,
-    COAG_MODE_CONTACT   = 1,
-    COAG_MODE_SPRAY     = 2,
-    COAG_MODE_ARGON     = 3,
-    COAG_MODE_COUNT
-} CoagMode_e;
+typedef enum
+{
+  AppDefs_CoagMode_Soft    = 0,
+  AppDefs_CoagMode_Contact = 1,
+  AppDefs_CoagMode_Spray   = 2,
+  AppDefs_CoagMode_Argon   = 3,
+  AppDefs_CoagMode_Count
+} AppDefs_CoagMode_e;
 
 /* ----------------------------------------------------------------
  * Bipolar CUT modes
  * ----------------------------------------------------------------*/
-typedef enum {
-    BICUT_MODE_STANDARD = 0,
-    BICUT_MODE_BLEND    = 1, 
-    BICUT_MODE_COUNT
-} BipolarCutMode_e;
+typedef enum
+{
+  AppDefs_BipolarCutMode_Standard = 0,
+  AppDefs_BipolarCutMode_Blend    = 1,
+  AppDefs_BipolarCutMode_Count
+} AppDefs_BipolarCutMode_e;
 
 /* ----------------------------------------------------------------
  * Bipolar COAG modes
  * ----------------------------------------------------------------*/
-typedef enum {
-    BICOAG_MODE_STANDARD   = 0,   // Foot switch
-    BICOAG_MODE_AUTO_START = 1,   // Auto start
-    BICOAG_MODE_FORCED     = 2,
-    BICOAG_MODE_COUNT
-} BipolarCoagMode_e;
+typedef enum
+{
+  AppDefs_BipolarCoagMode_Standard  = 0,
+  AppDefs_BipolarCoagMode_AutoStart = 1,
+  AppDefs_BipolarCoagMode_Forced    = 2,
+  AppDefs_BipolarCoagMode_Count
+} AppDefs_BipolarCoagMode_e;
 
 /* ----------------------------------------------------------------
  * System state machine
  * ----------------------------------------------------------------*/
-typedef enum {
-    ESU_STATE_IDLE              = 0,
-    ESU_STATE_CUT_ACTIVE        = 1,
-    ESU_STATE_COAG_ACTIVE       = 2,
-    ESU_STATE_BIPOLAR_CUT       = 3,
-    ESU_STATE_BIPOLAR_COAG      = 4,
-    ESU_STATE_POLYPECTOMY_CUT   = 5,
-    ESU_STATE_POLYPECTOMY_COAG  = 6,
-    ESU_STATE_REM_ALARM         = 7,
-    ESU_STATE_ERROR             = 8,
-    ESU_STATE_COUNT
-} ESU_State_e;
+typedef enum
+{
+  AppDefs_EsuState_Idle            = 0,
+  AppDefs_EsuState_CutActive       = 1,
+  AppDefs_EsuState_CoagActive      = 2,
+  AppDefs_EsuState_BipolarCut      = 3,
+  AppDefs_EsuState_BipolarCoag     = 4,
+  AppDefs_EsuState_PolypectomyCut  = 5,
+  AppDefs_EsuState_PolypectomyCoag = 6,
+  AppDefs_EsuState_RemAlarm        = 7,
+  AppDefs_EsuState_Error           = 8,
+  AppDefs_EsuState_Count
+} AppDefs_EsuState_e;
 
 /* ----------------------------------------------------------------
  * REM state
  * ----------------------------------------------------------------*/
-typedef enum {
-    REM_OK        = 0,
-    REM_ALARM     = 1,
-    REM_BYPASSED  = 2
-} REM_State_e;
+typedef enum
+{
+  AppDefs_RemState_Ok       = 0,
+  AppDefs_RemState_Alarm    = 1,
+  AppDefs_RemState_Bypassed = 2
+} AppDefs_RemState_e;
 
 /* ----------------------------------------------------------------
  * Settings for one channel
  * ----------------------------------------------------------------*/
-typedef struct {
-    uint8_t  cut_mode;
-    uint8_t  cut_level;
-    uint16_t cut_power_w;
-    uint8_t  coag_mode;
-    uint8_t  coag_level;
-    uint16_t coag_power_w;
-    uint8_t  poly_level;
-} ESU_Settings_t;
+typedef struct
+{
+  uint8_t  cut_mode;
+  uint8_t  cut_level;
+  uint16_t cut_powerW;
+  uint8_t  coag_mode;
+  uint8_t  coag_level;
+  uint16_t coag_powerW;
+  uint8_t  poly_level;
+} AppDefs_EsuSettings_t;
 
 /* ----------------------------------------------------------------
  * Binary packet from Nextion to STM32
  *
- *  Nextion Prism button event code (Touch Release ?):
+ *  Nextion Prism button event code (Touch Release):
  *    printh AA
  *    prints channel.val,    1
  *    prints cut_mode.val,   1
@@ -172,29 +180,29 @@ typedef struct {
 #define NEXTION_PKT_SIZE     12U
 
 #pragma pack(1)
-typedef struct {
-    uint8_t  header;         // 0xAA
-    uint8_t  channel;        // ESU_Channel_e
-    uint8_t  cut_mode;       // CutMode_e
-    uint8_t  cut_level;      // 1-4
-    uint16_t cut_power_w;    // 0-400 W 
-    uint8_t  coag_mode;      // CoagMode_e
-    uint8_t  coag_level;     // 1-3
-    uint16_t coag_power_w;   // 0-120 W 
-    uint8_t  poly_level;     // 1-4
-    uint8_t  checksum;       // XOR
-} ESU_Packet_t;
+typedef struct
+{
+  uint8_t  header;        /* 0xAA                */
+  uint8_t  channel;       /* AppDefs_Channel_e   */
+  uint8_t  cut_mode;      /* AppDefs_CutMode_e   */
+  uint8_t  cut_level;     /* 1-4                 */
+  uint16_t cut_powerW;    /* 0-400 W             */
+  uint8_t  coag_mode;     /* AppDefs_CoagMode_e  */
+  uint8_t  coag_level;    /* 1-3                 */
+  uint16_t coag_powerW;   /* 0-120 W             */
+  uint8_t  poly_level;    /* 1-4                 */
+  uint8_t  checksum;      /* XOR                 */
+} AppDefs_EsuPacket_t;
 #pragma pack()
 
 /* ----------------------------------------------------------------
- * Status reply from STM32 → Nextion (ASCII, Nextion-style)
- * STM32 sends a Nextion attribute write after each state change:
+ * Status reply STM32 → Nextion (ASCII, Nextion-style)
  *   "state.val=X\xff\xff\xff"
- *   "pwr.val=YYY\xff\xff\xff"    (measured watts × 10)
+ *   "pwr.val=YYY\xff\xff\xff"   (measured watts × 10)
  *   "err.val=Z\xff\xff\xff"
  * ----------------------------------------------------------------*/
 
-// Error flags
+/* Error flags */
 #define ESU_ERR_NONE         0x00U
 #define ESU_ERR_REM_ALARM    0x01U
 #define ESU_ERR_OVERTEMP     0x02U
@@ -205,4 +213,4 @@ typedef struct {
 }
 #endif
 
-#endif /* _APP_DEFS_H */
+#endif /* APP_DEFS_H_ */

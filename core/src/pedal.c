@@ -1,102 +1,181 @@
 /**
+ * ╔═══════════════════════════════════════════════════════════════╗
+ * ║                   Electrosurgical Unit                        ║
+ * ╚═══════════════════════════════════════════════════════════════╝
+ *
  * @file   pedal.c
  * @brief  Footswitch and handswitch debounce.
  */
 
 #include "pedal.h"
 
-/* ----------------------------------------------------------------
- * GPIO pin table
- * ----------------------------------------------------------------*/
-typedef struct { 
-    GPIO_TypeDef *port; 
-    uint16_t pin; 
-} _Pin;
+/* -------------------------------------------------------------------------- */
+/* GPIO pin table                                                             */
+/* -------------------------------------------------------------------------- */
 
-static const _Pin _FS_CUT1  = {GPIOC, GPIO_PIN_1};
-static const _Pin _FS_COAG1 = {GPIOC, GPIO_PIN_8};
-static const _Pin _FS_CUT2  = {GPIOE, GPIO_PIN_9};
-static const _Pin _FS_COAG2 = {GPIOE, GPIO_PIN_10};
-static const _Pin _HS_CUT   = {GPIOB, GPIO_PIN_4};
-static const _Pin _HS_COAG  = {GPIOB, GPIO_PIN_5};
-static const _Pin _BIPO_AUTO = {GPIOB, GPIO_PIN_8};
+typedef struct
+{
+    GPIO_TypeDef* pPort;
+    uint16_t pin;
+} Pedal_Pin_t;
 
-/* ----------------------------------------------------------------
- * Debounce counters
- * ----------------------------------------------------------------*/
-static uint8_t _db_cut1   = 0;
-static uint8_t _db_coag1  = 0;
-static uint8_t _db_cut2   = 0;
-static uint8_t _db_coag2  = 0;
-static uint8_t _db_hs_cut = 0;
-static uint8_t _db_hs_cog = 0;
-static uint8_t _db_bipo   = 0;
+static const Pedal_Pin_t gFsCutMono1 = {GPIOC, GPIO_PIN_1};
+static const Pedal_Pin_t gFsCoagMono1 = {GPIOC, GPIO_PIN_8};
+static const Pedal_Pin_t gFsCutMono2 = {GPIOE, GPIO_PIN_9};
+static const Pedal_Pin_t gFsCoagMono2 = {GPIOE, GPIO_PIN_10};
+static const Pedal_Pin_t gHsCut = {GPIOB, GPIO_PIN_4};
+static const Pedal_Pin_t gHsCoag = {GPIOB, GPIO_PIN_5};
+static const Pedal_Pin_t gBipoAuto = {GPIOB, GPIO_PIN_8};
 
-static bool _stable_cut1  = false;
-static bool _stable_coag1 = false;
-static bool _stable_cut2  = false;
-static bool _stable_coag2 = false;
-static bool _stable_hcut  = false;
-static bool _stable_hcog  = false;
-static bool _stable_bipo  = false;
+/* -------------------------------------------------------------------------- */
+/* Debounce counters                                                          */
+/* -------------------------------------------------------------------------- */
 
-/* ----------------------------------------------------------------
- * Helper
- * ----------------------------------------------------------------*/
-static bool _read(const _Pin *p) {
-    
-    /* active-LOW with pull-up */
-    return (HAL_GPIO_ReadPin(p->port, p->pin) == GPIO_PIN_RESET);
+static uint8_t gDbCutMono1 = 0U;
+static uint8_t gDbCoagMono1 = 0U;
+static uint8_t gDbCutMono2 = 0U;
+static uint8_t gDbCoagMono2 = 0U;
+static uint8_t gDbHsCut = 0U;
+static uint8_t gDbHsCoag = 0U;
+static uint8_t gDbBipoAuto = 0U;
+
+static bool gIsStableCutMono1 = false;
+static bool gIsStableCoagMono1 = false;
+static bool gIsStableCutMono2 = false;
+static bool gIsStableCoagMono2 = false;
+static bool gIsStableHsCut = false;
+static bool gIsStableHsCoag = false;
+static bool gIsStableBipoAuto = false;
+
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * @brief Read one active-LOW input.
+ * @param pPin Pointer to pin descriptor.
+ * @retval true when input is asserted, false otherwise.
+ */
+static bool pedal_read(const Pedal_Pin_t* pPin) {
+    return (GPIO_PIN_RESET == HAL_GPIO_ReadPin(pPin->pPort, pPin->pin));
 }
 
-static void _debounce(bool raw, uint8_t *cnt, bool *stable) {
-    if (raw) {
-        if (*cnt < PEDAL_DEBOUNCE_TICKS) (*cnt)++;
-    } else {
-        *cnt = 0;
+/**
+ * @brief Update one debounce channel.
+ * @param isRawPressed Raw active state.
+ * @param pCount Debounce counter.
+ * @param pIsStable Stable state output.
+ * @retval None
+ */
+static void pedal_debounce(bool isRawPressed, uint8_t* pCount, bool* pIsStable) {
+    if (true == isRawPressed) {
+        if (*pCount < PEDAL_DEBOUNCE_TICKS) {
+            (*pCount)++;
+        }
     }
-    *stable = (*cnt >= PEDAL_DEBOUNCE_TICKS);
+    else {
+        *pCount = 0U;
+    }
+
+    *pIsStable = (*pCount >= PEDAL_DEBOUNCE_TICKS);
 }
 
-/* ----------------------------------------------------------------
- * Public API
- * ----------------------------------------------------------------*/
+/* -------------------------------------------------------------------------- */
+/* Public API                                                                 */
+/* -------------------------------------------------------------------------- */
 
-void pedal_init(void)= {
-    _db_cut1 = _db_coag1 = _db_cut2 = _db_coag2 = 0;
-    _db_hs_cut = _db_hs_cog = _db_bipo = 0;
-    _stable_cut1 = _stable_coag1 = _stable_cut2 = _stable_coag2 = false;
-    _stable_hcut = _stable_hcog = _stable_bipo = false;
+/**
+ * @brief Initialise pedal module.
+ * @param None
+ * @retval 0 on success, error code otherwise
+ */
+void pedal_init(void) {
+    gDbCutMono1 = 0U;
+    gDbCoagMono1 = 0U;
+    gDbCutMono2 = 0U;
+    gDbCoagMono2 = 0U;
+    gDbHsCut = 0U;
+    gDbHsCoag = 0U;
+    gDbBipoAuto = 0U;
+
+    gIsStableCutMono1 = false;
+    gIsStableCoagMono1 = false;
+    gIsStableCutMono2 = false;
+    gIsStableCoagMono2 = false;
+    gIsStableHsCut = false;
+    gIsStableHsCoag = false;
+    gIsStableBipoAuto = false;
 }
 
+/**
+ * @brief Update debounce counters.
+ * @param None
+ * @retval 0 on success, error code otherwise
+ */
 void pedal_update(void) {
-    _debounce(_read(&_FS_CUT1),   &_db_cut1,   &_stable_cut1);
-    _debounce(_read(&_FS_COAG1),  &_db_coag1,  &_stable_coag1);
-    _debounce(_read(&_FS_CUT2),   &_db_cut2,   &_stable_cut2);
-    _debounce(_read(&_FS_COAG2),  &_db_coag2,  &_stable_coag2);
-    _debounce(_read(&_HS_CUT),    &_db_hs_cut, &_stable_hcut);
-    _debounce(_read(&_HS_COAG),   &_db_hs_cog, &_stable_hcog);
-    _debounce(_read(&_BIPO_AUTO), &_db_bipo,   &_stable_bipo);
+    pedal_debounce(pedal_read(&gFsCutMono1), &gDbCutMono1, &gIsStableCutMono1);
+    pedal_debounce(pedal_read(&gFsCoagMono1), &gDbCoagMono1, &gIsStableCoagMono1);
+    pedal_debounce(pedal_read(&gFsCutMono2), &gDbCutMono2, &gIsStableCutMono2);
+    pedal_debounce(pedal_read(&gFsCoagMono2), &gDbCoagMono2, &gIsStableCoagMono2);
+    pedal_debounce(pedal_read(&gHsCut), &gDbHsCut, &gIsStableHsCut);
+    pedal_debounce(pedal_read(&gHsCoag), &gDbHsCoag, &gIsStableHsCoag);
+    pedal_debounce(pedal_read(&gBipoAuto), &gDbBipoAuto, &gIsStableBipoAuto);
 }
 
-bool pedal_cut_pressed(ESU_Channel_e ch) {
-    switch (ch) {
-    case CHANNEL_MONO1:   return _stable_cut1 || _stable_hcut;
-    case CHANNEL_MONO2:   return _stable_cut2 || _stable_hcut;
-    case CHANNEL_BIPOLAR: return _stable_cut1 || _stable_cut2;
-    default:              return false;
+/**
+ * @brief Return true when the CUT input is stably pressed.
+ * @param channel Channel to query.
+ * @retval true if CUT is pressed, false otherwise.
+ */
+bool pedal_isCutPressed(AppDefs_Channel_e channel) {
+    switch (channel) {
+        case AppDefs_Channel_Mono1: {
+            return (gIsStableCutMono1 || gIsStableHsCut);
+        }
+
+        case AppDefs_Channel_Mono2: {
+            return (gIsStableCutMono2 || gIsStableHsCut);
+        }
+
+        case AppDefs_Channel_Bipolar: {
+            return (gIsStableCutMono1 || gIsStableCutMono2);
+        }
+
+        default: {
+            return false;
+        }
     }
 }
 
-bool pedal_coag_pressed(ESU_Channel_e ch) {
-    switch (ch) {
-    case CHANNEL_MONO1:   return _stable_coag1 || _stable_hcog;
-    case CHANNEL_MONO2:   return _stable_coag2 || _stable_hcog;
-    case CHANNEL_BIPOLAR: return _stable_coag1 || _stable_coag2;
-    default:              return false;
+/**
+ * @brief Return true when the COAG input is stably pressed.
+ * @param channel Channel to query.
+ * @retval true if COAG is pressed, false otherwise.
+ */
+bool pedal_isCoagPressed(AppDefs_Channel_e channel) {
+    switch (channel) {
+    case AppDefs_Channel_Mono1: {
+        return (gIsStableCoagMono1 || gIsStableHsCoag);
+    }
+
+    case AppDefs_Channel_Mono2: {
+        return (gIsStableCoagMono2 || gIsStableHsCoag);
+    }
+
+    case AppDefs_Channel_Bipolar: {
+        return (gIsStableCoagMono1 || gIsStableCoagMono2);
+    }
+
+    default:
+        return false;
     }
 }
 
-bool pedal_bipolar_auto(void) {
-    return _stable_bipo;
+/**
+ * @brief Return true when bipolar forceps auto-start contact is detected.
+ * @param None
+ * @retval true if bipolar auto-start is active, false otherwise.
+ */
+bool pedal_isBipolarAuto(void) {
+    return gIsStableBipoAuto;
 }

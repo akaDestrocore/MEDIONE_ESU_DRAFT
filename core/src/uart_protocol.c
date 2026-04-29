@@ -1,118 +1,218 @@
 /**
+ * ╔═══════════════════════════════════════════════════════════════╗
+ * ║                   Electrosurgical Unit                        ║
+ * ╚═══════════════════════════════════════════════════════════════╝
+ *
  * @file   uart_protocol.c
  * @brief  USART3 DMA + IDLE-line Nextion protocol driver.
  */
 
 #include "uart_protocol.h"
-#include <string.h>
+
 #include <stdio.h>
+#include <string.h>
 
-/* ----------------------------------------------------------------
- * Internals
- * ----------------------------------------------------------------*/
-static UART_HandleTypeDef *_huart = NULL;
-static uint8_t  _dma_buf[UART_PROTO_RX_BUF];
-static uint8_t  _pkt_buf[UART_PROTO_RX_BUF];
-static volatile bool     _pkt_ready = false;
-static volatile uint16_t _pkt_len   = 0;
+/* -------------------------------------------------------------------------- */
+/* Module state                                                               */
+/* -------------------------------------------------------------------------- */
 
-/* Nextion 3-byte terminator */
-static const uint8_t _TERM[3] = {0xFF, 0xFF, 0xFF};
+static UART_HandleTypeDef* g_pUart = NULL;
+static uint8_t gRxBuf[UART_PROTO_RX_BUF_SIZE];
+static uint8_t gPktBuf[UART_PROTO_RX_BUF_SIZE];
+static volatile bool gPktReady = false;
+static volatile uint16_t gPktLen = 0U;
 
-/* DMA handle — must match the DMA stream configured for USART3 RX
- * in the CubeMX / MX_DMA_Init code.  Declared extern in header. */
-DMA_HandleTypeDef hdma_usart3_rx;
+static const uint8_t gTerminator[3U] = {0xFFU, 0xFFU, 0xFFU};
 
-/* ----------------------------------------------------------------
- * Public API
- * ----------------------------------------------------------------*/
+/* -------------------------------------------------------------------------- */
+/* Public API                                                                 */
+/* -------------------------------------------------------------------------- */
 
-void uart_proto_init(UART_HandleTypeDef *huart) {
-    
-    _huart     = huart;
-    _pkt_ready = false;
-    _pkt_len   = 0;
+/**
+  * @brief Initialise UART protocol module.
+  * @param pUart USART3 handle.
+  * @retval 0 on success, error code otherwise
+  */
+void uartProto_init(UART_HandleTypeDef* pUart)
+{
+    g_pUart = pUart;
+    gPktReady = false;
+    gPktLen = 0U;
 
-    /* IDLE interrupt fires after the last byte of a burst */
-    __HAL_UART_ENABLE_IT(_huart, UART_IT_IDLE);
-
-    /* DMA in circular mode — buffer never empties, IDLE tells us when
-     * the sender has stopped. */
-    HAL_UART_Receive_DMA(_huart, _dma_buf, UART_PROTO_RX_BUF);
-}
-
-void uart_proto_idle_isr(void) {
-    /* How many bytes did DMA capture since the last IDLE? */
-    uint16_t remaining = (uint16_t)__HAL_DMA_GET_COUNTER(&hdma_usart3_rx);
-    uint16_t received  = UART_PROTO_RX_BUF - remaining;
-
-    if (received == 0 || received > UART_PROTO_RX_BUF) return;
-
-    /* Snapshot and validate */
-    memcpy(_pkt_buf, _dma_buf, received);
-    _pkt_len = received;
-
-    if (received == NEXTION_PKT_SIZE && _pkt_buf[0] == NEXTION_PKT_HEADER) {
-        /* XOR checksum over bytes [0 .. N-2] */
-        uint8_t xor = 0;
-        for (uint8_t i = 0; i < NEXTION_PKT_SIZE - 1U; i++) {
-            xor ^= _pkt_buf[i];
-        }
-        if (xor == _pkt_buf[NEXTION_PKT_SIZE - 1U]) {
-            _pkt_ready = true;
-        }
-        /* Bad checksum → silently discard; display will resend on next touch */
+    if (NULL != g_pUart) {
+        __HAL_UART_ENABLE_IT(g_pUart, UART_IT_IDLE);
+        (void)HAL_UART_Receive_DMA(g_pUart, gRxBuf, UART_PROTO_RX_BUF_SIZE);
     }
 }
 
-bool uart_proto_get_packet(ESU_Packet_t *pkt) {
-    if (!_pkt_ready) return false;
-    memcpy(pkt, _pkt_buf, sizeof(ESU_Packet_t));
-    _pkt_ready = false;
+/**
+  * @brief USART3 IDLE-line callback.
+  * @param None
+  * @retval 0 on success, error code otherwise
+  */
+void uartProto_cbIdleIsr(void)
+{
+    uint16_t remaining = 0U;
+    uint16_t received = 0U;
+    uint8_t xorValue = 0U;
+    uint16_t index = 0U;
+
+    if (NULL == g_pUart) {
+        return;
+    }
+
+    remaining = (uint16_t)__HAL_DMA_GET_COUNTER(&hdma_usart3_rx);
+    received = (uint16_t)(UART_PROTO_RX_BUF_SIZE - remaining);
+
+    if ((0U == received) || (received > UART_PROTO_RX_BUF_SIZE)) {
+        return;
+    }
+
+    (void)memcpy(gPktBuf, gRxBuf, received);
+    gPktLen = received;
+
+    /*
+     * Validate the packet length and checksum.
+     * Packet layout depends on AppDefs_EsuPacket_t definition.
+     */
+    if (received == (uint16_t)sizeof(AppDefs_EsuPacket_t)) {
+        for (index = 0U; index < (uint16_t)(sizeof(AppDefs_EsuPacket_t) - 1U); index++) {
+            xorValue ^= gPktBuf[index];
+        }
+
+        if (xorValue == gPktBuf[(uint16_t)(sizeof(AppDefs_EsuPacket_t) - 1U)]) {
+            gPktReady = true;
+        }
+    }
+}
+
+/**
+  * @brief Check whether a valid settings packet has arrived.
+  * @param pPkt Receives the decoded packet if available.
+  * @retval true if a fresh packet is ready, false otherwise.
+  */
+bool uartProto_getPacket(AppDefs_EsuPacket_t* pPkt)
+{
+    if ((NULL == pPkt) || (false == gPktReady)) {
+        return false;
+    }
+
+    (void)memcpy(pPkt, gPktBuf, sizeof(AppDefs_EsuPacket_t));
+    gPktReady = false;
+
     return true;
 }
 
-/* ----------------------------------------------------------------
- * Helpers
- * ----------------------------------------------------------------*/
-static void _tx(const char *buf, uint16_t len) {
-    if (_huart == NULL || len == 0) return;
-    HAL_UART_Transmit(_huart, (uint8_t *)buf, len, UART_PROTO_TX_TIMEOUT);
-}
+/* -------------------------------------------------------------------------- */
+/* Private helpers                                                            */
+/* -------------------------------------------------------------------------- */
 
-static void _append_term(char *buf, int len, int max) {
-    if (len + 3 < max) {
-        buf[len]     = (char)0xFF;
-        buf[len + 1] = (char)0xFF;
-        buf[len + 2] = (char)0xFF;
-        _tx(buf, (uint16_t)(len + 3));
+/**
+  * @brief Transmit raw bytes over USART3.
+  * @param pBuf Byte buffer.
+  * @param len Number of bytes to send.
+  * @retval 0 on success, error code otherwise
+  */
+static void uartProto_txRaw(const uint8_t* pBuf, uint16_t len)
+{
+    if ((NULL != g_pUart) && (NULL != pBuf) && (0U != len)) {
+        (void)HAL_UART_Transmit(g_pUart, (uint8_t*)pBuf, len, UART_PROTO_TX_TIMEOUT_MS);
     }
 }
 
-/* ----------------------------------------------------------------
- * Send commands
- * ----------------------------------------------------------------*/
-
-void uart_proto_send_val(const char *component, int32_t value) {
-    char buf[56];
-    int  len = snprintf(buf, sizeof(buf), "%s.val=%ld", component, (long)value);
-    if (len > 0) _append_term(buf, len, (int)sizeof(buf));
+/**
+  * @brief Append Nextion terminator and transmit the buffer.
+  * @param pBuf Command buffer.
+  * @param len Current command length.
+  * @param maxLen Maximum buffer size.
+  * @retval 0 on success, error code otherwise
+  */
+static void uartProto_appendTerminator(char* pBuf, uint16_t len, uint16_t maxLen)
+{
+    if ((NULL != pBuf) && ((uint16_t)(len + 3U) <= maxLen)) {
+        pBuf[len] = (char)gTerminator[0U];
+        pBuf[len + 1U] = (char)gTerminator[1U];
+        pBuf[len + 2U] = (char)gTerminator[2U];
+        uartProto_txRaw((const uint8_t*)pBuf, (uint16_t)(len + 3U));
+    }
 }
 
-void uart_proto_send_txt(const char *component, const char *text) {
-    char buf[56];
-    int  len = snprintf(buf, sizeof(buf), "%s.txt=\"%s\"", component, text);
-    if (len > 0) _append_term(buf, len, (int)sizeof(buf));
+/* -------------------------------------------------------------------------- */
+/* Send commands                                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+  * @brief Send a Nextion numeric component update.
+  * @param pComponent Nextion component name.
+  * @param value Numeric value to send.
+  * @retval 0 on success, error code otherwise
+  */
+void uartProto_sendVal(const char* pComponent, int32_t value)
+{
+    char buffer[56];
+    int32_t length = 0;
+
+    if (NULL == pComponent) {
+        return;
+    }
+
+    length = snprintf(buffer, sizeof(buffer), "%s.val=%ld", pComponent, (long)value);
+    if (0 < length) {
+        uartProto_appendTerminator(buffer, (uint16_t)length, (uint16_t)sizeof(buffer));
+    }
 }
 
-void uart_proto_send_page(const char *page_name) {
-    char buf[40];
-    int  len = snprintf(buf, sizeof(buf), "page %s", page_name);
-    if (len > 0) _append_term(buf, len, (int)sizeof(buf));
+/**
+  * @brief Send a Nextion text component update.
+  * @param pComponent Nextion component name.
+  * @param pText Text to send.
+  * @retval 0 on success, error code otherwise
+  */
+void uartProto_sendTxt(const char* pComponent, const char* pText)
+{
+    char buffer[56];
+    int32_t length = 0;
+
+    if ((NULL == pComponent) || (NULL == pText)) {
+        return;
+    }
+
+    length = snprintf(buffer, sizeof(buffer), "%s.txt=\"%s\"", pComponent, pText);
+    if (0 < length) {
+        uartProto_appendTerminator(buffer, (uint16_t)length, (uint16_t)sizeof(buffer));
+    }
 }
 
-void uart_proto_push_status(ESU_State_e state, uint16_t power_dw, uint8_t errors) {
-    uart_proto_send_val("state", (int32_t)state);
-    uart_proto_send_val("pwr",   (int32_t)power_dw);
-    uart_proto_send_val("err",   (int32_t)errors);
+/**
+  * @brief Navigate the Nextion display to a named page.
+  * @param pPageName Target page name.
+  * @retval 0 on success, error code otherwise
+  */
+void uartProto_sendPage(const char* pPageName)
+{
+    char buffer[40];
+    int32_t length = 0;
+
+    if (NULL == pPageName) {
+        return;
+    }
+
+    length = snprintf(buffer, sizeof(buffer), "page %s", pPageName);
+    if (0 < length) {
+        uartProto_appendTerminator(buffer, (uint16_t)length, (uint16_t)sizeof(buffer));
+    }
+}
+
+/**
+  * @brief Push a complete ESU status update to the Nextion.
+  * @param state ESU state.
+  * @param powerDw Measured output power in deci-watts.
+  * @param errors Error bitmask.
+  * @retval 0 on success, error code otherwise
+  */
+void uartProto_pushStatus(AppDefs_EsuState_e state, uint16_t powerDw, uint8_t errors)
+{
+    uartProto_sendVal("state", (int32_t)state);
+    uartProto_sendVal("pwr", (int32_t)powerDw);
+    uartProto_sendVal("err", (int32_t)errors);
 }
