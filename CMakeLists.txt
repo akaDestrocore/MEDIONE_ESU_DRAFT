@@ -202,8 +202,14 @@ target_sources(app.elf PRIVATE
     ${CMAKE_SOURCE_DIR}/core/src/main.c
     ${CMAKE_SOURCE_DIR}/core/src/image_header.c
     ${CMAKE_SOURCE_DIR}/common/src/image.c
-    ${CMAKE_SOURCE_DIR}/common/src/crc.c
-    ${CMAKE_SOURCE_DIR}/common/src/flash.c
+    # ${CMAKE_SOURCE_DIR}/common/src/crc.c
+    # ${CMAKE_SOURCE_DIR}/common/src/flash.c
+    ${CMAKE_SOURCE_DIR}/core/src/app_fsm.c
+    ${CMAKE_SOURCE_DIR}/core/src/nextion.c
+    ${CMAKE_SOURCE_DIR}/core/src/rf_generator.c
+    ${CMAKE_SOURCE_DIR}/core/src/pedal.c
+    ${CMAKE_SOURCE_DIR}/core/src/adc_monitor.c
+    ${CMAKE_SOURCE_DIR}/core/src/safety.c
 )
 
 target_include_directories(app.elf PRIVATE

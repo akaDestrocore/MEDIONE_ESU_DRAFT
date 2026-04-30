@@ -176,8 +176,6 @@ typedef struct
  *
  *  Total packet = 12 bytes
  * ----------------------------------------------------------------*/
-#define NEXTION_PKT_HEADER   0xAAU
-#define NEXTION_PKT_SIZE     12U
 
 #pragma pack(1)
 typedef struct

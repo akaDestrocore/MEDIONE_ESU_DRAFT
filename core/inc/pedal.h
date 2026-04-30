@@ -31,8 +31,7 @@ extern "C" {
 
 #include <stdbool.h>
 #include <stdint.h>
-
-#include "app_defs.h"         // AppDefs_Channel_e
+#include "app_defs.h"
 #include "stm32f4xx_hal.h"
 
 #define PEDAL_DEBOUNCE_TICKS    5U
