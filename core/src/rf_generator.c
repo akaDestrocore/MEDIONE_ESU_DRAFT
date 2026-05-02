@@ -5,12 +5,20 @@
  *
  * @file   rf_generator.c
  * @brief  RF carrier generation — timer reconfiguration per mode.
+ *
+ * @details
+ *  Relay/mux routing is now fully delegated to relay.c.  Each
+ *  rfGen_configure*() call first invokes relay_apply() (which writes
+ *  all relay/mux GPIOs atomically and starts a 200 ms settle timer),
+ *  then reconfigures the relevant timer.  The RF amplifier enable
+ *  GPIO is driven by rfGen_enable*() — the caller (app_fsm) must
+ *  not call those until relay_isSettled() returns true.
  */
 
 #include "rf_generator.h"
 
 /* -------------------------------------------------------------------------- */
-/* GPIO helpers                                                               */
+/* GPIO helpers — amp / audio enables use BSRR (no RMW)                      */
 /* -------------------------------------------------------------------------- */
 
 #define GPIO_SET(pPort, pin)    ((pPort)->BSRR = (uint32_t)(pin))
@@ -85,34 +93,23 @@ static volatile uint32_t gCutCcrFull = 0U;
 /* -------------------------------------------------------------------------- */
 
 /**
- * @brief Set timer prescaler and autoreload.
- * @param pHtim Timer handle.
- * @param psc Prescaler value.
- * @param arr Auto-reload value.
- * @retval 0 on success, error code otherwise
+ * @brief  Set timer prescaler and auto-reload, force an update event.
+ * @param  pHtim  Timer handle.
+ * @param  psc    Prescaler value.
+ * @param  arr    Auto-reload value.
+ * @retval None
  */
-static void rfGen_setTimerFrequency(TIM_HandleTypeDef* pHtim, uint32_t psc, uint32_t arr) {
+static void rfGen_setTimerFrequency(TIM_HandleTypeDef *pHtim,
+                                    uint32_t           psc,
+                                    uint32_t           arr) {
     if (NULL != pHtim) {
         pHtim->Instance->CR1 &= (uint32_t)~TIM_CR1_CEN;
-        pHtim->Instance->PSC = psc;
-        pHtim->Instance->ARR = arr;
-        pHtim->Instance->EGR = TIM_EGR_UG;
-        pHtim->Instance->SR &= (uint32_t)~TIM_SR_UIF;
+        pHtim->Instance->PSC  = psc;
+        pHtim->Instance->ARR  = arr;
+        pHtim->Instance->EGR  = TIM_EGR_UG;
+        pHtim->Instance->SR  &= (uint32_t)~TIM_SR_UIF;
         pHtim->Instance->CR1 |= TIM_CR1_CEN;
     }
-}
-
-/**
- * @brief Reset blend state.
- * @param None
- * @retval 0 on success, error code otherwise
- */
-static void rfGen_resetBlendState(void)
-{
-    gBlendState.onCount = 0U;
-    gBlendState.totalCount = 0U;
-    gBlendState.counter = 0U;
-    gBlendState.isActive = false;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -120,18 +117,20 @@ static void rfGen_resetBlendState(void)
 /* -------------------------------------------------------------------------- */
 
 /**
- * @brief Initialise RF generator module.
- * @param pTimers Pointer to a fully populated RFGen_Timers_t structure.
- * @retval 0 on success, error code otherwise
+ * @brief  Initialise RF generator module.
+ * @param  pTimers  Pointer to a fully populated RFGen_Timers_t structure.
+ * @retval None
  */
-void rfGen_init(const RFGen_Timers_t* pTimers) {
+void rfGen_init(const RFGen_Timers_t *pTimers) {
     if (NULL != pTimers) {
         gTimers = *pTimers;
     }
 
-    memset(&gBlendState, 0, sizeof(gBlendState));
+    (void)memset(&gBlendState, 0, sizeof(gBlendState));
     gBlendState.isActive = false;
-    gCutCcrFull = 0U;
+    gCutCcrFull          = 0U;
+
+    relay_allOff();
 
     if (NULL != gTimers.pHtimCut) {
         (void)HAL_TIM_PWM_Start(gTimers.pHtimCut, TIM_CHANNEL_1);
@@ -163,13 +162,16 @@ void rfGen_init(const RFGen_Timers_t* pTimers) {
 }
 
 /**
- * @brief Configure all timers for the requested CUT mode.
- * @param mode CUT mode selection.
- * @retval 0 on success, error code otherwise
+ * @brief  Configure timers and relay routing for the requested CUT mode.
+ * @param  mode  CUT mode selection.
+ * @retval None
  */
 void rfGen_configureCut(AppDefs_CutMode_e mode) {
     gBlendState.isActive = false;
-    gBlendState.counter = 0U;
+    gBlendState.counter  = 0U;
+
+    // Apply relay routing first; caller must await relay_isSettled()
+    relay_apply(RELAY_CFG_CUT_MONO);
 
     switch (mode) {
         case AppDefs_CutMode_Pure: {
@@ -183,40 +185,40 @@ void rfGen_configureCut(AppDefs_CutMode_e mode) {
 
         case AppDefs_CutMode_Blend1: {
             rfGen_setTimerFrequency(gTimers.pHtimCut, TIM4_PSC_400KHZ, TIM4_ARR_400KHZ);
-            gCutCcrFull = (TIM4_ARR_400KHZ + 1U) / 2U;
+            gCutCcrFull              = (TIM4_ARR_400KHZ + 1U) / 2U;
             if (NULL != gTimers.pHtimCut) {
                 gTimers.pHtimCut->Instance->CCR1 = gCutCcrFull;
             }
-            gBlendState.onCount = BLEND1_ON;
+            gBlendState.onCount    = BLEND1_ON;
             gBlendState.totalCount = BLEND1_TOTAL;
-            gBlendState.counter = 0U;
-            gBlendState.isActive = true;
+            gBlendState.counter    = 0U;
+            gBlendState.isActive   = true;
             break;
         }
 
         case AppDefs_CutMode_Blend2: {
             rfGen_setTimerFrequency(gTimers.pHtimCut, TIM4_PSC_380KHZ, TIM4_ARR_380KHZ);
-            gCutCcrFull = (TIM4_ARR_380KHZ + 1U) / 2U;
+            gCutCcrFull              = (TIM4_ARR_380KHZ + 1U) / 2U;
             if (NULL != gTimers.pHtimCut) {
                 gTimers.pHtimCut->Instance->CCR1 = gCutCcrFull;
             }
-            gBlendState.onCount = BLEND2_ON;
+            gBlendState.onCount    = BLEND2_ON;
             gBlendState.totalCount = BLEND2_TOTAL;
-            gBlendState.counter = 0U;
-            gBlendState.isActive = true;
+            gBlendState.counter    = 0U;
+            gBlendState.isActive   = true;
             break;
         }
 
         case AppDefs_CutMode_Blend3: {
             rfGen_setTimerFrequency(gTimers.pHtimCut, TIM4_PSC_380KHZ, TIM4_ARR_380KHZ);
-            gCutCcrFull = (TIM4_ARR_380KHZ + 1U) / 2U;
+            gCutCcrFull              = (TIM4_ARR_380KHZ + 1U) / 2U;
             if (NULL != gTimers.pHtimCut) {
                 gTimers.pHtimCut->Instance->CCR1 = gCutCcrFull;
             }
-            gBlendState.onCount = BLEND3_ON;
+            gBlendState.onCount    = BLEND3_ON;
             gBlendState.totalCount = BLEND3_TOTAL;
-            gBlendState.counter = 0U;
-            gBlendState.isActive = true;
+            gBlendState.counter    = 0U;
+            gBlendState.isActive   = true;
             break;
         }
 
@@ -226,7 +228,6 @@ void rfGen_configureCut(AppDefs_CutMode_e mode) {
             if (NULL != gTimers.pHtimCut) {
                 gTimers.pHtimCut->Instance->CCR1 = gCutCcrFull;
             }
-
             if (NULL != gTimers.pHtimPolySlow) {
                 gTimers.pHtimPolySlow->Instance->CCR1 =
                     (gTimers.pHtimPolySlow->Instance->ARR + 1U) / 2U;
@@ -241,13 +242,22 @@ void rfGen_configureCut(AppDefs_CutMode_e mode) {
 }
 
 /**
- * @brief Configure all timers for the requested COAG mode.
- * @param mode COAG mode selection.
- * @retval 0 on success, error code otherwise
+ * @brief  Configure timers and relay routing for the requested COAG mode.
+ * @param  mode  COAG mode selection.
+ * @retval None
  */
 void rfGen_configureCoag(AppDefs_CoagMode_e mode) {
     gBlendState.isActive = false;
-    gBlendState.counter = 0U;
+    gBlendState.counter  = 0U;
+
+    // Select relay routing before touching timers
+    switch (mode) {
+        case AppDefs_CoagMode_Spray:  relay_apply(RELAY_CFG_COAG_SPRAY);   break;
+        case AppDefs_CoagMode_Argon:  relay_apply(RELAY_CFG_COAG_ARGON);   break;
+        case AppDefs_CoagMode_Contact: relay_apply(RELAY_CFG_COAG_CONTACT); break;
+        case AppDefs_CoagMode_Soft:   // fall-through
+        default:                      relay_apply(RELAY_CFG_COAG_SOFT);    break;
+    }
 
     switch (mode) {
         case AppDefs_CoagMode_Soft: {
@@ -284,21 +294,22 @@ void rfGen_configureCoag(AppDefs_CoagMode_e mode) {
             break;
         }
 
-        default:
-        {
+        default: {
             break;
         }
     }
 }
 
 /**
- * @brief Configure timers for a Bipolar CUT sub-mode.
- * @param mode Bipolar CUT mode selection.
- * @retval 0 on success, error code otherwise
+ * @brief  Configure timers and relay routing for a Bipolar CUT sub-mode.
+ * @param  mode  Bipolar CUT mode selection.
+ * @retval None
  */
 void rfGen_configureBipolarCut(AppDefs_BipolarCutMode_e mode) {
     gBlendState.isActive = false;
-    gBlendState.counter = 0U;
+    gBlendState.counter  = 0U;
+
+    relay_apply(RELAY_CFG_BIPOLAR_CUT);
 
     rfGen_setTimerFrequency(gTimers.pHtimCoag, TIM13_PSC_500KHZ, TIM13_ARR_500KHZ);
 
@@ -306,27 +317,28 @@ void rfGen_configureBipolarCut(AppDefs_BipolarCutMode_e mode) {
         if (NULL != gTimers.pHtimCoag) {
             gTimers.pHtimCoag->Instance->CCR1 = TIM13_CCR_HALF;
         }
-    }
-    else {
+    } else {
         if (NULL != gTimers.pHtimCoag) {
             gTimers.pHtimCoag->Instance->CCR1 = TIM13_CCR_HALF;
         }
-        gCutCcrFull = TIM13_CCR_HALF;
-        gBlendState.onCount = BLEND1_ON;
+        gCutCcrFull              = TIM13_CCR_HALF;
+        gBlendState.onCount    = BLEND1_ON;
         gBlendState.totalCount = BLEND1_TOTAL;
-        gBlendState.counter = 0U;
-        gBlendState.isActive = true;
+        gBlendState.counter    = 0U;
+        gBlendState.isActive   = true;
     }
 }
 
 /**
- * @brief Configure timers for a Bipolar COAG sub-mode.
- * @param mode Bipolar COAG mode selection.
- * @retval 0 on success, error code otherwise
+ * @brief  Configure timers and relay routing for a Bipolar COAG sub-mode.
+ * @param  mode  Bipolar COAG mode selection.
+ * @retval None
  */
 void rfGen_configureBipolarCoag(AppDefs_BipolarCoagMode_e mode) {
     gBlendState.isActive = false;
-    gBlendState.counter = 0U;
+    gBlendState.counter  = 0U;
+
+    relay_apply(RELAY_CFG_BIPOLAR_COAG);
 
     rfGen_setTimerFrequency(gTimers.pHtimCoag, TIM13_PSC_500KHZ, TIM13_ARR_500KHZ);
 
@@ -334,13 +346,12 @@ void rfGen_configureBipolarCoag(AppDefs_BipolarCoagMode_e mode) {
         if (NULL != gTimers.pHtimCoag) {
             gTimers.pHtimCoag->Instance->CCR1 = TIM13_CCR_HALF;
         }
-        gCutCcrFull = TIM13_CCR_HALF;
-        gBlendState.onCount = BIPOF_ON;
+        gCutCcrFull              = TIM13_CCR_HALF;
+        gBlendState.onCount    = BIPOF_ON;
         gBlendState.totalCount = BIPOF_TOTAL;
-        gBlendState.counter = 0U;
-        gBlendState.isActive = true;
-    }
-    else {
+        gBlendState.counter    = 0U;
+        gBlendState.isActive   = true;
+    } else {
         if (NULL != gTimers.pHtimCoag) {
             gTimers.pHtimCoag->Instance->CCR1 = TIM13_CCR_HALF;
         }
@@ -348,9 +359,8 @@ void rfGen_configureBipolarCoag(AppDefs_BipolarCoagMode_e mode) {
 }
 
 /**
- * @brief Enable the RF output amplifier for the CUT path.
- * @param None
- * @retval 0 on success, error code otherwise
+ * @brief  Enable the RF output amplifier for the CUT path.
+ * @retval None
  */
 void rfGen_enableCut(void) {
     GPIO_SET(CUT_EN_PORT, CUT_EN_PIN);
@@ -358,9 +368,8 @@ void rfGen_enableCut(void) {
 }
 
 /**
- * @brief Disable the RF output amplifier for the CUT path.
- * @param None
- * @retval 0 on success, error code otherwise
+ * @brief  Disable the RF output amplifier for the CUT path.
+ * @retval None
  */
 void rfGen_disableCut(void) {
     gBlendState.isActive = false;
@@ -368,7 +377,6 @@ void rfGen_disableCut(void) {
     if (NULL != gTimers.pHtimCut) {
         gTimers.pHtimCut->Instance->CCR1 = 0U;
     }
-
     if (NULL != gTimers.pHtimPolySlow) {
         gTimers.pHtimPolySlow->Instance->CCR1 = 0U;
     }
@@ -378,9 +386,8 @@ void rfGen_disableCut(void) {
 }
 
 /**
- * @brief Enable the RF output amplifier for the COAG path.
- * @param None
- * @retval 0 on success, error code otherwise
+ * @brief  Enable the RF output amplifier for the COAG path.
+ * @retval None
  */
 void rfGen_enableCoag(void) {
     GPIO_SET(COAG_EN_PORT, COAG_EN_PIN);
@@ -388,9 +395,8 @@ void rfGen_enableCoag(void) {
 }
 
 /**
- * @brief Disable the RF output amplifier for the COAG path.
- * @param None
- * @retval 0 on success, error code otherwise
+ * @brief  Disable the RF output amplifier for the COAG path.
+ * @retval None
  */
 void rfGen_disableCoag(void) {
     gBlendState.isActive = false;
@@ -398,7 +404,6 @@ void rfGen_disableCoag(void) {
     if (NULL != gTimers.pHtimCoag) {
         gTimers.pHtimCoag->Instance->CCR1 = 0U;
     }
-
     if (NULL != gTimers.pHtimCoag2) {
         gTimers.pHtimCoag2->Instance->CCR1 = 0U;
     }
@@ -408,18 +413,16 @@ void rfGen_disableCoag(void) {
 }
 
 /**
- * @brief Enable the RF output amplifier for the Bipolar path.
- * @param None
- * @retval 0 on success, error code otherwise
+ * @brief  Enable the RF output amplifier for the Bipolar path.
+ * @retval None
  */
 void rfGen_enableBipolar(void) {
     GPIO_SET(BIPO_EN_PORT, BIPO_EN_PIN);
 }
 
 /**
- * @brief Disable the RF output amplifier for the Bipolar path.
- * @param None
- * @retval 0 on success, error code otherwise
+ * @brief  Disable the RF output amplifier for the Bipolar path.
+ * @retval None
  */
 void rfGen_disableBipolar(void) {
     gBlendState.isActive = false;
@@ -432,50 +435,47 @@ void rfGen_disableBipolar(void) {
 }
 
 /**
- * @brief Disable all RF paths and reset the blend modulator.
- * @param None
- * @retval 0 on success, error code otherwise
+ * @brief  Disable all RF paths, reset blend modulator, and safe all relays.
+ * @retval None
  */
 void rfGen_disableAll(void) {
     gBlendState.isActive = false;
-    gBlendState.counter = 0U;
+    gBlendState.counter  = 0U;
 
-    GPIO_CLEAR(CUT_EN_PORT, CUT_EN_PIN);
-    GPIO_CLEAR(COAG_EN_PORT, COAG_EN_PIN);
-    GPIO_CLEAR(BIPO_EN_PORT, BIPO_EN_PIN);
-    GPIO_CLEAR(LED_CUT_PORT, LED_CUT_PIN);
+    GPIO_CLEAR(CUT_EN_PORT,   CUT_EN_PIN);
+    GPIO_CLEAR(COAG_EN_PORT,  COAG_EN_PIN);
+    GPIO_CLEAR(BIPO_EN_PORT,  BIPO_EN_PIN);
+    GPIO_CLEAR(LED_CUT_PORT,  LED_CUT_PIN);
     GPIO_CLEAR(LED_COAG_PORT, LED_COAG_PIN);
     GPIO_CLEAR(AUDIO_EN_PORT, AUDIO_EN_PIN);
 
     if (NULL != gTimers.pHtimCut) {
         gTimers.pHtimCut->Instance->CCR1 = 0U;
     }
-
     if (NULL != gTimers.pHtimCoag) {
         gTimers.pHtimCoag->Instance->CCR1 = 0U;
     }
-
     if (NULL != gTimers.pHtimCoag2) {
         gTimers.pHtimCoag2->Instance->CCR1 = 0U;
     }
-
     if (NULL != gTimers.pHtimPolySlow) {
         gTimers.pHtimPolySlow->Instance->CCR1 = 0U;
     }
-
     if (NULL != gTimers.pHtimAudio) {
         (void)HAL_TIM_PWM_Stop(gTimers.pHtimAudio, TIM_CHANNEL_2);
     }
+
+    relay_allOff();
 }
 
 /**
- * @brief Start the audio buzzer.
- * @param isCut true for CUT tone, false for COAG tone.
- * @retval 0 on success, error code otherwise
+ * @brief  Start the audio buzzer.
+ * @param  isCut  true for CUT tone, false for COAG tone.
+ * @retval None
  */
 void rfGen_audioStart(bool isCut) {
-    uint32_t arr = 0U;
-    uint32_t ccr = 0U;
+    uint32_t arr;
+    uint32_t ccr;
 
     if (NULL == gTimers.pHtimAudio) {
         return;
@@ -492,28 +492,24 @@ void rfGen_audioStart(bool isCut) {
 }
 
 /**
- * @brief Stop the audio buzzer.
- * @param None
- * @retval 0 on success, error code otherwise
+ * @brief  Stop the audio buzzer.
+ * @retval None
  */
 void rfGen_audioStop(void) {
     if (NULL != gTimers.pHtimAudio) {
         (void)HAL_TIM_PWM_Stop(gTimers.pHtimAudio, TIM_CHANNEL_2);
     }
-
     GPIO_CLEAR(AUDIO_EN_PORT, AUDIO_EN_PIN);
 }
 
 /**
- * @brief Blend envelope ISR callback.
- * @param None
- * @retval 0 on success, error code otherwise
+ * @brief  Blend envelope ISR callback — call from TIM2 ISR.
+ * @retval None
  */
 void rfGen_blendTickIsr(void) {
     if (false == gBlendState.isActive) {
         return;
     }
-
     if (NULL == gTimers.pHtimCut) {
         return;
     }
@@ -525,8 +521,7 @@ void rfGen_blendTickIsr(void) {
 
     if (gBlendState.counter < gBlendState.onCount) {
         gTimers.pHtimCut->Instance->CCR1 = gCutCcrFull;
-    }
-    else {
+    } else {
         gTimers.pHtimCut->Instance->CCR1 = 0U;
     }
 }

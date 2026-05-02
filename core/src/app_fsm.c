@@ -8,17 +8,27 @@
  *
  * @details
  *  This module owns the ESU system state and orchestrates all other
- *  modules. It does not contain direct hardware register access.
+ *  modules.  It does not contain direct hardware register access.
+ *
+ *  Relay settle protocol
+ *  ─────────────────────
+ *  rfGen_configure*() calls relay_apply() internally, which starts a
+ *  200 ms non-blocking settle timer.  appFsm_enterState() therefore
+ *  does NOT call rfGen_enable*() directly; instead it transitions to
+ *  an intermediate "settling" sub-state (AppDefs_EsuState_Settling)
+ *  and defers the enable call until relay_isSettled() returns true.
+ *  relay_update() is called every main-loop iteration from
+ *  app_fsmProcess() so the settle timer advances without blocking.
  *
  *  Polypectomy sub-state cycling (PolypectomyCut ↔ PolypectomyCoag)
- *  is driven by TIM5 ISR via app_fsmPolyTick(). To avoid executing
+ *  is driven by TIM5 ISR via app_fsmPolyTick().  To avoid executing
  *  HAL/RF calls from ISR context, the tick handler only sets volatile
- *  flags. The actual RF reconfiguration happens in app_fsmProcess()
+ *  flags.  The actual RF reconfiguration happens in app_fsmProcess()
  *  running from the main loop.
  *
  *  ISR ↔ main flag protocol:
  *    The ISR writes gPolyTransitToCoag / gPolyTransitToCut (volatile
- *    bool). app_fsmProcess() reads and clears them inside a critical
+ *    bool).  app_fsmProcess() reads and clears them inside a critical
  *    section (__disable_irq / __enable_irq) to guarantee an atomic
  *    test-and-clear with no lost transitions.
  */
@@ -53,6 +63,12 @@ static          uint16_t gPolyCoagTicks = 50U;  // 500 ms
 static volatile bool gPolyTransitToCoag = false;
 static volatile bool gPolyTransitToCut  = false;
 
+/*
+ * Pending state — the state to enter once relay_isSettled() is true.
+ * AppDefs_EsuState_Count means "nothing pending".
+ */
+static AppDefs_EsuState_e gPendingState = AppDefs_EsuState_Count;
+
 // Status-push de-duplication
 static AppDefs_EsuState_e gLastSentState   = (AppDefs_EsuState_e)0xFFU;
 static uint16_t           gLastSentPowerDw = 0xFFFFU;
@@ -63,7 +79,6 @@ static uint16_t           gLastSentPowerDw = 0xFFFFU;
 
 /**
  * @brief  Disable all RF outputs and zero the DAC.
- * @param  None
  * @retval None
  */
 static void appFsm_allOff(void) {
@@ -74,8 +89,14 @@ static void appFsm_allOff(void) {
 
 /**
  * @brief  Execute exit actions for the current state, update gState,
- *         then execute entry actions for the new state.
- * @note   Must only be called from main-loop context (not from ISR).
+ *         then start entry actions for the new state.
+ *
+ * @details
+ *  For states that require relay switching the function calls
+ *  rfGen_configure*() (which triggers relay_apply() internally) but
+ *  defers rfGen_enable*() until relay_isSettled() is true.  The
+ *  gPendingState field records which enable call to make once settled.
+ *
  * @param  newState  Target state.
  * @retval None
  */
@@ -116,7 +137,8 @@ static void appFsm_enterState(AppDefs_EsuState_e newState) {
             break;
     }
 
-    gState = newState;
+    gState        = newState;
+    gPendingState = AppDefs_EsuState_Count; // Clear any stale pending enable
 
     // ---- Entry actions ----
     switch (newState) {
@@ -128,49 +150,41 @@ static void appFsm_enterState(AppDefs_EsuState_e newState) {
             break;
 
         case AppDefs_EsuState_CutActive:
+            // Configure timers + relay (settle starts inside rfGen_configure)
             rfGen_configureCut((AppDefs_CutMode_e)gSettings.cut_mode);
-            rfGen_enableCut();
-            rfGen_audioStart(true);
+            // Defer rfGen_enableCut() until relay settles
+            gPendingState = AppDefs_EsuState_CutActive;
             nextion_sendPage("activePage");
             break;
 
         case AppDefs_EsuState_CoagActive:
             rfGen_configureCoag((AppDefs_CoagMode_e)gSettings.coag_mode);
-            rfGen_enableCoag();
-            rfGen_audioStart(false);
+            gPendingState = AppDefs_EsuState_CoagActive;
             nextion_sendPage("activePage");
             break;
 
         case AppDefs_EsuState_BipolarCut:
             rfGen_configureBipolarCut((AppDefs_BipolarCutMode_e)gSettings.cut_mode);
-            rfGen_enableBipolar();
-            rfGen_audioStart(true);
+            gPendingState = AppDefs_EsuState_BipolarCut;
             break;
 
         case AppDefs_EsuState_BipolarCoag:
             rfGen_configureBipolarCoag((AppDefs_BipolarCoagMode_e)gSettings.coag_mode);
-            rfGen_enableBipolar();
-            rfGen_audioStart(false);
+            gPendingState = AppDefs_EsuState_BipolarCoag;
             break;
 
         case AppDefs_EsuState_PolypectomyCut:
-            // Initial entry from Idle — start CUT phase
             __disable_irq();
             gPolyTick          = 0U;
             gPolyTransitToCoag = false;
             gPolyTransitToCut  = false;
             __enable_irq();
             rfGen_configureCut(AppDefs_CutMode_Polypectomy);
-            rfGen_enableCut();
-            rfGen_audioStart(true);
+            gPendingState = AppDefs_EsuState_PolypectomyCut;
             break;
 
-        /*
-         * AppDefs_EsuState_PolypectomyCoag:
-         *   Sub-state cycling is handled inline in app_fsmProcess()
-         *   via gPolyTransit* flags. This case is never reached through
-         *   appFsm_enterState() in normal operation.
-         */
+        // PolypectomyCoag cycling is handled inline via gPolyTransit* flags
+        // in app_fsmProcess() — no entry through this path in normal operation.
 
         case AppDefs_EsuState_RemAlarm:
             appFsm_allOff();
@@ -188,12 +202,55 @@ static void appFsm_enterState(AppDefs_EsuState_e newState) {
     }
 }
 
+/**
+ * @brief  Complete a deferred RF enable once relay settle has elapsed.
+ * @retval None
+ */
+static void appFsm_applyPendingEnable(void) {
+    if (AppDefs_EsuState_Count == gPendingState) {
+        return; // Nothing pending
+    }
+
+    if (false == relay_isSettled()) {
+        return; // Still settling
+    }
+
+    switch (gPendingState) {
+        case AppDefs_EsuState_CutActive:
+        case AppDefs_EsuState_PolypectomyCut:
+            rfGen_enableCut();
+            rfGen_audioStart(true);
+            break;
+
+        case AppDefs_EsuState_CoagActive:
+        case AppDefs_EsuState_PolypectomyCoag:
+            rfGen_enableCoag();
+            rfGen_audioStart(false);
+            break;
+
+        case AppDefs_EsuState_BipolarCut:
+            rfGen_enableBipolar();
+            rfGen_audioStart(true);
+            break;
+
+        case AppDefs_EsuState_BipolarCoag:
+            rfGen_enableBipolar();
+            rfGen_audioStart(false);
+            break;
+
+        default:
+            break;
+    }
+
+    gPendingState = AppDefs_EsuState_Count;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Public API                                                                  */
 /* -------------------------------------------------------------------------- */
 
 /**
- * @brief  One-time initialisation. Call after all HAL and MX inits.
+ * @brief  One-time initialisation.  Call after all HAL and MX inits.
  * @param  pTimers       RF generator timer bundle.
  * @param  pHadc         ADC1 handle.
  * @param  pHdac         DAC handle.
@@ -226,6 +283,7 @@ void app_fsm_init(const RFGen_Timers_t *pTimers,
     gPolyCoagTicks     = POLY_COAG_TICKS(gSettings.poly_level);
     gPolyTransitToCoag = false;
     gPolyTransitToCut  = false;
+    gPendingState      = AppDefs_EsuState_Count;
     gLastSentState     = (AppDefs_EsuState_e)0xFFU;
     gLastSentPowerDw   = 0xFFFFU;
 
@@ -234,8 +292,7 @@ void app_fsm_init(const RFGen_Timers_t *pTimers,
 }
 
 /**
- * @brief  Main loop body. Call from while(1) in main().
- * @param  None
+ * @brief  Main loop body.  Call from while(1) in main().
  * @retval None
  */
 void app_fsmProcess(void) {
@@ -248,16 +305,22 @@ void app_fsmProcess(void) {
     uint16_t            powerDw;
 
     // Local copies of ISR flags, read atomically
-    bool                transitToCoag;
-    bool                transitToCut;
+    bool transitToCoag;
+    bool transitToCut;
+
+    // Advance relay settle timer
+    relay_update();
 
     adcMonitor_scan();
     pedal_update();
 
+    // Complete any deferred RF enable (post-relay-settle)
+    appFsm_applyPendingEnable();
+
     /* ------------------------------------------------------------------
-     * Atomically read and clear the ISR-set polypectomy transition flags.
-     * RF reconfiguration is performed here (main context) — HAL calls
-     * must not happen in ISR context.
+     * Atomically read and clear polypectomy transition flags.
+     * RF reconfiguration is done here (main context) — HAL calls must
+     * not happen in ISR context.
      * ------------------------------------------------------------------ */
     __disable_irq();
     transitToCoag      = (bool)gPolyTransitToCoag;
@@ -266,20 +329,19 @@ void app_fsmProcess(void) {
     gPolyTransitToCut  = false;
     __enable_irq();
 
-    if (transitToCoag && (AppDefs_EsuState_PolypectomyCut == gState)) {
+    if ((true == transitToCoag) && (AppDefs_EsuState_PolypectomyCut == gState)) {
         rfGen_disableCut();
         rfGen_configureCoag(AppDefs_CoagMode_Soft);
-        rfGen_enableCoag();
-        rfGen_audioStart(false);
-        gState = AppDefs_EsuState_PolypectomyCoag;
+        // Deferred enable — wait for relay settle
+        gPendingState = AppDefs_EsuState_PolypectomyCoag;
+        gState        = AppDefs_EsuState_PolypectomyCoag;
     }
 
-    if (transitToCut && (AppDefs_EsuState_PolypectomyCoag == gState)) {
+    if ((true == transitToCut) && (AppDefs_EsuState_PolypectomyCoag == gState)) {
         rfGen_disableCoag();
         rfGen_configureCut(AppDefs_CutMode_Polypectomy);
-        rfGen_enableCut();
-        rfGen_audioStart(true);
-        gState = AppDefs_EsuState_PolypectomyCut;
+        gPendingState = AppDefs_EsuState_PolypectomyCut;
+        gState        = AppDefs_EsuState_PolypectomyCut;
     }
 
     /* ------------------------------------------------------------------
@@ -287,7 +349,7 @@ void app_fsmProcess(void) {
      * Settings are only accepted in Idle to prevent mid-activation
      * configuration changes.
      * ------------------------------------------------------------------ */
-    if (nextion_getPacket(&pkt)) {
+    if (true == nextion_getPacket(&pkt)) {
         if (AppDefs_EsuState_Idle == gState) {
             gChannel              = (AppDefs_Channel_e)pkt.channel;
             gSettings.cut_mode    = pkt.cut_mode;
@@ -319,14 +381,14 @@ void app_fsmProcess(void) {
     }
 
     // Clear REM alarm once fault resolves
-    if (!skipMainFsm &&
+    if ((false == skipMainFsm) &&
         (AppDefs_EsuState_RemAlarm == gState) &&
         (0U == ((uint8_t)faults & (uint8_t)Safety_Fault_e_REM))) {
         appFsm_enterState(AppDefs_EsuState_Idle);
     }
 
     // Priority 2: Overcurrent
-    if (!skipMainFsm &&
+    if ((false == skipMainFsm) &&
         (0U != ((uint8_t)faults & (uint8_t)Safety_Fault_e_OC))) {
         gErrors |= ESU_ERR_OVERCURRENT;
         appFsm_enterState(AppDefs_EsuState_Error);
@@ -334,70 +396,70 @@ void app_fsmProcess(void) {
     }
 
     // Priority 3: Overtemperature
-    if (!skipMainFsm &&
+    if ((false == skipMainFsm) &&
         (0U != ((uint8_t)faults & (uint8_t)Safety_Fault_e_OT))) {
         gErrors |= ESU_ERR_OVERTEMP;
         appFsm_enterState(AppDefs_EsuState_Error);
         skipMainFsm = true;
     }
 
-    // Error state latches until external reset — skip main FSM
-    if (!skipMainFsm && (AppDefs_EsuState_Error == gState)) {
+    // Error state latches until external reset
+    if ((false == skipMainFsm) && (AppDefs_EsuState_Error == gState)) {
         skipMainFsm = true;
     }
 
     /* ------------------------------------------------------------------
      * Main application state machine
      * ------------------------------------------------------------------ */
-    if (!skipMainFsm) {
+    if (false == skipMainFsm) {
         cutPressed  = pedal_isCutPressed(gChannel);
         coagPressed = pedal_isCoagPressed(gChannel);
 
         switch (gState) {
             case AppDefs_EsuState_Idle:
-                if (isBipolar) {
-                    if (pedal_isBipolarAuto() &&
+                if (true == isBipolar) {
+                    if ((true == pedal_isBipolarAuto()) &&
                         ((uint8_t)AppDefs_BipolarCoagMode_AutoStart == gSettings.coag_mode)) {
                         appFsm_enterState(AppDefs_EsuState_BipolarCoag);
-                    } else if (cutPressed) {
+                    } else if (true == cutPressed) {
                         appFsm_enterState(AppDefs_EsuState_BipolarCut);
-                    } else if (coagPressed) {
+                    } else if (true == coagPressed) {
                         appFsm_enterState(AppDefs_EsuState_BipolarCoag);
                     } else {
-                        // No activation — remain Idle
+                        // No activation
                     }
                 } else {
-                    if (cutPressed) {
+                    if (true == cutPressed) {
                         if ((uint8_t)AppDefs_CutMode_Polypectomy == gSettings.cut_mode) {
                             appFsm_enterState(AppDefs_EsuState_PolypectomyCut);
                         } else {
                             appFsm_enterState(AppDefs_EsuState_CutActive);
                         }
-                    } else if (coagPressed) {
+                    } else if (true == coagPressed) {
                         appFsm_enterState(AppDefs_EsuState_CoagActive);
                     } else {
-                        // No activation — remain Idle
+                        // No activation
                     }
                 }
                 break;
 
             case AppDefs_EsuState_CutActive:
                 adcMonitor_powerLoop(gSettings.cut_powerW);
-                if (!cutPressed) {
+                if (false == cutPressed) {
                     appFsm_enterState(AppDefs_EsuState_Idle);
                 }
                 break;
 
             case AppDefs_EsuState_CoagActive:
                 adcMonitor_powerLoop(gSettings.coag_powerW);
-                if (!coagPressed) {
+                if (false == coagPressed) {
                     appFsm_enterState(AppDefs_EsuState_Idle);
                 }
                 break;
 
             case AppDefs_EsuState_BipolarCut:
                 adcMonitor_powerLoop(gSettings.cut_powerW);
-                if (!cutPressed) {
+                if (false == cutPressed) {
                     appFsm_enterState(AppDefs_EsuState_Idle);
                 }
                 break;
@@ -405,11 +467,11 @@ void app_fsmProcess(void) {
             case AppDefs_EsuState_BipolarCoag:
                 adcMonitor_powerLoop(gSettings.coag_powerW);
                 if ((uint8_t)AppDefs_BipolarCoagMode_AutoStart == gSettings.coag_mode) {
-                    if (!pedal_isBipolarAuto()) {
+                    if (false == pedal_isBipolarAuto()) {
                         appFsm_enterState(AppDefs_EsuState_Idle);
                     }
                 } else {
-                    if (!coagPressed) {
+                    if (false == coagPressed) {
                         appFsm_enterState(AppDefs_EsuState_Idle);
                     }
                 }
@@ -417,14 +479,14 @@ void app_fsmProcess(void) {
 
             case AppDefs_EsuState_PolypectomyCut:
                 adcMonitor_powerLoop(gSettings.cut_powerW);
-                if (!cutPressed) {
+                if (false == cutPressed) {
                     appFsm_enterState(AppDefs_EsuState_Idle);
                 }
                 break;
 
             case AppDefs_EsuState_PolypectomyCoag:
                 adcMonitor_powerLoop(gSettings.coag_powerW);
-                if (!cutPressed) {  // pedal released during coag burst
+                if (false == cutPressed) { // Pedal released during coag burst
                     appFsm_enterState(AppDefs_EsuState_Idle);
                 }
                 break;
@@ -448,12 +510,10 @@ void app_fsmProcess(void) {
 
 /**
  * @brief  Polypectomy sub-state tick — call from TIM5 ISR at 100 Hz.
- * @note   Only sets flags; no HAL or RF calls happen here.
- * @param  None
  * @retval None
  */
 void app_fsmPolyTick(void) {
-    AppDefs_EsuState_e state = gState; // single atomic read
+    AppDefs_EsuState_e state = gState; // Single atomic read
 
     if ((AppDefs_EsuState_PolypectomyCut  != state) &&
         (AppDefs_EsuState_PolypectomyCoag != state)) {
@@ -477,8 +537,6 @@ void app_fsmPolyTick(void) {
 
 /**
  * @brief  Blend envelope tick — call from TIM2 ISR.
- * @note   rfGen_blendTickIsr() is ISR-safe (CCR register writes only).
- * @param  None
  * @retval None
  */
 void app_fsmBlendTick(void) {
@@ -487,7 +545,6 @@ void app_fsmBlendTick(void) {
 
 /**
  * @brief  IDLE line callback — call from USART3_IRQHandler.
- * @param  None
  * @retval None
  */
 void app_fsmIdleIsr(void) {
@@ -496,7 +553,6 @@ void app_fsmIdleIsr(void) {
 
 /**
  * @brief  Return current ESU state.
- * @param  None
  * @retval Current AppDefs_EsuState_e value.
  */
 AppDefs_EsuState_e app_fsmGetState(void) {
@@ -505,7 +561,6 @@ AppDefs_EsuState_e app_fsmGetState(void) {
 
 /**
  * @brief  Return current error bitmask.
- * @param  None
  * @retval ESU_ERR_* bitmask.
  */
 uint8_t app_fsmGetErrors(void) {
