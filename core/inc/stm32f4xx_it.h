@@ -55,10 +55,11 @@ void SVC_Handler(void);
 void DebugMon_Handler(void);
 void PendSV_Handler(void);
 void SysTick_Handler(void);
-void TIM1_BRK_TIM9_IRQHandler(void);
-void TIM2_IRQHandler(void);
-void USART3_IRQHandler(void);
-void TIM5_IRQHandler(void);
+void TIM1_BRK_TIM9_IRQHandler(void);  // Audio buzzer
+void TIM2_IRQHandler(void);           // Blend envelope tick
+void USART3_IRQHandler(void);         // NEXTION IDLE line detection
+void TIM5_IRQHandler(void);           // Polypectomy
+void DMA1_Stream1_IRQHandler(void);   // USART3 RX DMA
 /* USER CODE BEGIN EFP */
 
 /* USER CODE END EFP */

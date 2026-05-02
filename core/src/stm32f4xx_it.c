@@ -21,53 +21,21 @@
 #include "main.h"
 #include "stm32f4xx_it.h"
 /* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
-/* USER CODE END Includes */
-
-/* Private typedef -----------------------------------------------------------*/
-/* USER CODE BEGIN TD */
-
-/* USER CODE END TD */
-
-/* Private define ------------------------------------------------------------*/
-/* USER CODE BEGIN PD */
-
-/* USER CODE END PD */
-
-/* Private macro -------------------------------------------------------------*/
-/* USER CODE BEGIN PM */
-
-/* USER CODE END PM */
-
-/* Private variables ---------------------------------------------------------*/
-/* USER CODE BEGIN PV */
-
-/* USER CODE END PV */
-
-/* Private function prototypes -----------------------------------------------*/
-/* USER CODE BEGIN PFP */
-
-/* USER CODE END PFP */
-
-/* Private user code ---------------------------------------------------------*/
-/* USER CODE BEGIN 0 */
-
-/* USER CODE END 0 */
+#include "app_fsm.h"
 
 /* External variables --------------------------------------------------------*/
 extern TIM_HandleTypeDef htim2;
 extern TIM_HandleTypeDef htim5;
 extern TIM_HandleTypeDef htim9;
 extern UART_HandleTypeDef huart3;
-/* USER CODE BEGIN EV */
-
-/* USER CODE END EV */
+extern DMA_HandleTypeDef hdma_usart3_rx;
 
 /******************************************************************************/
 /*           Cortex-M4 Processor Interruption and Exception Handlers          */
 /******************************************************************************/
 /**
   * @brief This function handles Non maskable interrupt.
+  * @retval None
   */
 void NMI_Handler(void)
 {
@@ -83,6 +51,7 @@ void NMI_Handler(void)
 
 /**
   * @brief This function handles Hard fault interrupt.
+  * @retval None
   */
 void HardFault_Handler(void)
 {
@@ -98,6 +67,7 @@ void HardFault_Handler(void)
 
 /**
   * @brief This function handles Memory management fault.
+  * @retval None
   */
 void MemManage_Handler(void)
 {
@@ -113,6 +83,7 @@ void MemManage_Handler(void)
 
 /**
   * @brief This function handles Pre-fetch fault, memory access fault.
+  * @retval None
   */
 void BusFault_Handler(void)
 {
@@ -128,6 +99,7 @@ void BusFault_Handler(void)
 
 /**
   * @brief This function handles Undefined instruction or illegal state.
+  * @retval None
   */
 void UsageFault_Handler(void)
 {
@@ -143,6 +115,7 @@ void UsageFault_Handler(void)
 
 /**
   * @brief This function handles System service call via SWI instruction.
+  * @retval None
   */
 void SVC_Handler(void)
 {
@@ -156,6 +129,7 @@ void SVC_Handler(void)
 
 /**
   * @brief This function handles Debug monitor.
+  * @retval None
   */
 void DebugMon_Handler(void)
 {
@@ -169,6 +143,7 @@ void DebugMon_Handler(void)
 
 /**
   * @brief This function handles Pendable request for system service.
+  * @retval None
   */
 void PendSV_Handler(void)
 {
@@ -182,6 +157,7 @@ void PendSV_Handler(void)
 
 /**
   * @brief This function handles System tick timer.
+  * @retval None
   */
 void SysTick_Handler(void)
 {
@@ -202,7 +178,25 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /**
+  * @brief  DMA1 Stream1 interrupt handler — USART3 RX circular DMA
+  * @details HAL_UART_DMAStop() is never called on a circular stream!
+  *          This handler only services transfer-complete and half-transfer
+  *          events. The actual frame parsing is triggered by the USART3 IDLE interrupt.
+  * @retval None
+  */
+void DMA1_Stream1_IRQHandler(void) {
+    /* USER CODE BEGIN DMA1_Stream1_IRQn 0 */
+
+    /* USER CODE END DMA1_Stream1_IRQn 0 */
+    HAL_DMA_IRQHandler(&hdma_usart3_rx);
+    /* USER CODE BEGIN DMA1_Stream1_IRQn 1 */
+
+    /* USER CODE END DMA1_Stream1_IRQn 1 */
+}
+
+/**
   * @brief This function handles TIM1 break interrupt and TIM9 global interrupt.
+  * @retval None
   */
 void TIM1_BRK_TIM9_IRQHandler(void)
 {
@@ -217,6 +211,7 @@ void TIM1_BRK_TIM9_IRQHandler(void)
 
 /**
   * @brief This function handles TIM2 global interrupt.
+  * @retval None
   */
 void TIM2_IRQHandler(void)
 {
@@ -231,20 +226,22 @@ void TIM2_IRQHandler(void)
 
 /**
   * @brief This function handles USART3 global interrupt.
+  * @retval None
   */
-void USART3_IRQHandler(void)
-{
-  /* USER CODE BEGIN USART3_IRQn 0 */
+void USART3_IRQHandler(void) {
 
-  /* USER CODE END USART3_IRQn 0 */
-  HAL_UART_IRQHandler(&huart3);
-  /* USER CODE BEGIN USART3_IRQn 1 */
+    HAL_UART_IRQHandler(&huart3);
 
-  /* USER CODE END USART3_IRQn 1 */
+    // Check for IDLE line interrupt and forward to NEXTION driver
+    if (RESET != __HAL_UART_GET_FLAG(&huart3, UART_FLAG_IDLE)) {
+        __HAL_UART_CLEAR_IDLEFLAG(&huart3);
+        app_fsmIdleIsr();
+    }
 }
 
 /**
   * @brief This function handles TIM5 global interrupt.
+  * @retval None
   */
 void TIM5_IRQHandler(void)
 {

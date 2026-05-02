@@ -125,7 +125,7 @@ static inline void led_set(uint8_t led, bool on) {
     if (true == on) {
         GPIOD->BSRR = PIN[led];
     } else {
-        GPIOD->BSRR &= ~(PIN[led] << 16U);
+        GPIOD->BSRR = PIN[led] << 16U;
     }
 }
 
