@@ -15,8 +15,6 @@
  */
 
 #include "main.h"
-#include "image.h"
-#include "stm32f407xx.h"
 
 /* Private function prototypes -----------------------------------------------*/
 static void rcc_init(void);
@@ -24,34 +22,59 @@ static void gpio_init(void);
 static inline void led_set(uint8_t led, bool on);
 static void delay_ms(uint32_t ms);
 static uint32_t crc_calculate(uint32_t addr, uint32_t size);
-static bool bl_isImageValid(void);
+static bool bl_isImageValid(uint32_t baseAddr, uint32_t expectedMagic);
+static bl_bootTarget_e bl_getBootTarget(void);
 static void deinit_system(void);
-static __attribute__((noreturn)) void boot_to_image(void);
+static __attribute__((noreturn)) void boot_to_image(uint32_t vectorAddr);
 void Error_Handler(void);
 void HardFault_Handler(void);
+
+
+/* Private type deffinitions --------------------------------------------------*/
+typedef enum {
+    bl_bootTarget_NONE      = 0,
+    bl_bootTarget_UPDATER   = 1,
+    bl_bootTarget_APP       = 2
+} bl_bootTarget_e;
 
 /**
   * @brief  Main entry point of bootloader
   * @retval int Never returns in normal operation
   */
 int main(void) {
-    
+
     rcc_init();
     gpio_init();
 
-    if (true == bl_isImageValid()) {
-        deinit_system();
-        boot_to_image(); 
+    const bl_bootTarget_e target = bl_getBootTarget();
+
+    switch (target) {
+        case bl_bootTarget_APP: {
+            deinit_system();
+            boot_to_image(APP_ADDR + IMAGE_HDR_SIZE);
+            break;
+        }
+        
+        case bl_bootTarget_UPDATER: {
+            deinit_system();
+            boot_to_image(UPDATER_ADDR + IMAGE_HDR_SIZE);
+            break;
+        }
+
+        default: {
+            break;
+        }
     }
 
+    // Both images invalid — blink red LED (index 2) forever
     bool ledState = false;
-
-    while (1) {
+    while (1U) {
         ledState = !ledState;
-        led_set(2, ledState);
+        led_set(2U, ledState);
         delay_ms(200U);
     }
 }
+
 
 /**
   * @brief  Initialize RCC clock system to HSI
@@ -60,7 +83,7 @@ int main(void) {
 static void rcc_init(void) {
     
     RCC->CR |= RCC_CR_HSION;
-    while (!(RCC->CR & RCC_CR_HSIRDY)) {
+    while (0U == (RCC->CR & RCC_CR_HSIRDY)) {
         // Wait for HSI to be ready
     }
 
@@ -151,22 +174,20 @@ static void delay_ms(uint32_t ms) {
  * @note    Data must be 4 byte aligned
  */
 static uint32_t crc_calculate(uint32_t addr, uint32_t size) {
-    
-    // Reset CRC repiph
+
     CRC->CR = CRC_CR_RESET;
 
-    // Feed whole 32-bit words
-    const uint32_t *pAddr = (const uint32_t *)addr;
-    // Size/4
+    const uint32_t *pWord = (const uint32_t *)addr;
     uint32_t words = size >> 2U;
-    while (words--) {
-        CRC->DR = *pAddr++;
+
+    while (words-- > 0U) {
+        CRC->DR = *pWord++;
     }
 
-    // Feed remaining bytes as a single word
-    uint32_t remaining = size & 3U;
+    const uint32_t remaining = size & 3U;
     if (remaining > 0U) {
-        const uint8_t *pByte = (const uint8_t *)pAddr;
+        const uint8_t *pByte = (const uint8_t *)pWord;
+
         uint32_t last = 0U;
         for (uint32_t i = 0U; i < remaining; i++) {
             last |= (uint32_t)pByte[i] << (i * 8U);
@@ -178,124 +199,129 @@ static uint32_t crc_calculate(uint32_t addr, uint32_t size) {
 }
 
 /**
- * @brief Validate the application image located at APP_ADDR.
- * @retval true if the image is valid and safe to boot, false otherwise
+ * @brief Validate one firmware image.
+ * @param baseAddr Flash address of the image_hdr_t.
+ * @param expectedMagic Magic constant expected in image_hdr_t.image_magic.
+ * @retval true if the image header and CRC are valid.
  */
-static bool bl_isImageValid(void) {
-    
-    const image_hdr_t *pHdr = (const image_hdr_t *)APP_ADDR;
+static bool bl_isImageValid(uint32_t baseAddr, uint32_t expectedMagic) {
 
-    if (pHdr->image_magic != IMAGE_MAGIC_APP) {
+    const image_hdr_t *pHdr = (const image_hdr_t *)baseAddr;
+
+    if (pHdr->image_magic != expectedMagic) {
         return false;
     }
-
-    if (pHdr->image_type != IMAGE_TYPE_APP) {
-        return false;
-    }
-
-    const uint32_t fw_addr = APP_ADDR + IMAGE_HDR_SIZE;
 
     if (0U == pHdr->data_size) {
         return false;
     }
-    if ((fw_addr + pHdr->data_size) > FLASH_END) {
-        return false;
-    }
-    // fw_addr + data_size must not wrap
-    if ((fw_addr + pHdr->data_size) < fw_addr) {
+
+    const uint32_t fwAddr = baseAddr + IMAGE_HDR_SIZE;
+
+    if ((fwAddr + pHdr->data_size) > FLASH_END) {
         return false;
     }
 
-    uint32_t calculated = crc_calculate(fw_addr, pHdr->data_size);
+    if ((fwAddr + pHdr->data_size) < fwAddr) {
+        return false;
+    }
+
+    const uint32_t calculated = crc_calculate(fwAddr, pHdr->data_size);
     return (calculated == pHdr->crc);
 }
 
+
 /**
- * @brief De-initialize all peripherals
+ * @brief Determine which component to boot.
+ * @retval bl_bootTarget_e target to boot, or Bl_BootTarget_NONE if both fail.
+ */
+static bl_bootTarget_e bl_getBootTarget(void) {
+
+    if (true == bl_isImageValid(APP_ADDR, IMAGE_MAGIC_APP)) {
+        return bl_bootTarget_APP;
+    }
+
+    if (true == bl_isImageValid(UPDATER_ADDR, IMAGE_MAGIC_UPDATER)) {
+        return bl_bootTarget_UPDATER;
+    }
+
+    return bl_bootTarget_NONE;
+}
+
+
+/**
+ * @brief De-initialise peripherals used by the bootloader before handoff.
  * @retval None
  */
 static void deinit_system(void) {
+    // Reset used AHB1 peripherals
+    RCC->AHB1RSTR |= RCC_AHB1RSTR_CRCRST | RCC_AHB1RSTR_GPIOARST
+                   | RCC_AHB1RSTR_GPIODRST;
+    RCC->AHB1RSTR &= ~(RCC_AHB1RSTR_CRCRST | RCC_AHB1RSTR_GPIOARST
+                     | RCC_AHB1RSTR_GPIODRST);
 
-    // AHB1
-    RCC->AHB1RSTR |= RCC_AHB1RSTR_CRCRST;
-    RCC->AHB1RSTR |= RCC_AHB1RSTR_GPIOARST;
-    RCC->AHB1RSTR |= RCC_AHB1RSTR_GPIOFRST;
-
-    RCC->AHB1RSTR &= ~(RCC_AHB1RSTR_CRCRST 
-                    | RCC_AHB1RSTR_GPIOARST 
-                    | RCC_AHB1RSTR_GPIOFRST);
-
-    // APB1
+    // Reset used APB peripherals
     RCC->APB1RSTR |= RCC_APB1RSTR_PWRRST;
     RCC->APB1RSTR &= ~RCC_APB1RSTR_PWRRST;
 
-    // APB2
-    RCC->APB2RSTR |= RCC_APB2RSTR_USART1RST 
-                    | RCC_APB2RSTR_SYSCFGRST;
+    RCC->APB2RSTR |= RCC_APB2RSTR_SYSCFGRST;
+    RCC->APB2RSTR &= ~RCC_APB2RSTR_SYSCFGRST;
 
-    RCC->APB2RSTR &= ~(RCC_APB2RSTR_USART1RST 
-                    | RCC_APB2RSTR_SYSCFGRST);
-    
-    // Disbale peripheral buff 
-    RCC->AHB1ENR &= ~(RCC_AHB1ENR_CRCEN |
-                      RCC_AHB1ENR_GPIOAEN |
-                      RCC_AHB1ENR_GPIOFEN);
+    // Disable peripheral clocks
+    RCC->AHB1ENR &= ~(RCC_AHB1ENR_CRCEN | RCC_AHB1ENR_GPIOAEN
+                    | RCC_AHB1ENR_GPIODEN);
+    RCC->APB1ENR &= ~RCC_APB1ENR_PWREN;
+    RCC->APB2ENR &= ~RCC_APB2ENR_SYSCFGEN;
 
-    RCC->APB1ENR &= ~(RCC_APB1ENR_PWREN);
-
-    RCC->APB2ENR &= ~(RCC_APB2ENR_USART1EN |
-                      RCC_APB2ENR_SYSCFGEN);
-
-    // Reset all NVICs
-    for (uint32_t i = 0; i < 8; i++) {
-        NVIC->ICER[i] = 0xFFFFFFFF;
-        NVIC->ICPR[i] = 0xFFFFFFFF;
+    // Clear all NVIC enables and pending bits
+    for (uint32_t i = 0U; i < 8U; i++) {
+        NVIC->ICER[i] = 0xFFFFFFFFU;
+        NVIC->ICPR[i] = 0xFFFFFFFFU;
     }
 
-    SysTick->CTRL = 0;
-    SysTick->LOAD = 0;
-    SysTick->VAL  = 0;
+    SysTick->CTRL = 0U;
+    SysTick->LOAD = 0U;
+    SysTick->VAL  = 0U;
 }
 
 /**
- * @brief Hand control to the application.
- * @retval None
+ * @brief Transfer control to the image whose vector table starts at vectorAddr.
+ * @param vectorAddr Address of the target image's vector table.
+ * @retval Never returns.
  */
-static __attribute__((noreturn)) void boot_to_image(void) {
+static __attribute__((noreturn)) void boot_to_image(uint32_t vectorAddr) {
 
-    const uint32_t vectorAddr = APP_ADDR + IMAGE_HDR_SIZE;
     const uint32_t appMsp = *(const uint32_t *)(vectorAddr);
     const uint32_t appResetFn = *(const uint32_t *)(vectorAddr + 4U);
 
-    // All LEDs off
-    GPIOD->BSRR = (GPIO_BSRR_BS12 | GPIO_BSRR_BS13 
-                |GPIO_BSRR_BS14 | GPIO_BSRR_BS15) << 16U;
+    // LEDs off
+    GPIOD->BSRR = (GPIO_BSRR_BS12 | GPIO_BSRR_BS13 | GPIO_BSRR_BS14 
+                    | GPIO_BSRR_BS15) << 16U;
 
-    // Reset GPIOD to input
+    // Reset GPIOD to input-only state
     GPIOD->MODER  = 0x00000000U;
     GPIOD->OTYPER = 0x00000000U;
     GPIOD->PUPDR  = 0x00000000U;
-
     RCC->AHB1ENR &= ~(RCC_AHB1ENR_CRCEN | RCC_AHB1ENR_GPIODEN);
 
     SCB->VTOR = vectorAddr;
 
     SysTick->CTRL = 0U;
     SCB->ICSR |= SCB_ICSR_PENDSTCLR_Msk;
-    SCB->SHCSR &= ~(SCB_SHCSR_USGFAULTENA_Msk 
-                | SCB_SHCSR_BUSFAULTENA_Msk 
-                | SCB_SHCSR_MEMFAULTENA_Msk);
+    SCB->SHCSR &= ~(SCB_SHCSR_USGFAULTENA_Msk
+                  | SCB_SHCSR_BUSFAULTENA_Msk
+                  | SCB_SHCSR_MEMFAULTENA_Msk);
 
     SYSCFG->MEMRMP = 0U;
 
     __set_MSP(appMsp);
     __set_PSP(appMsp);
 
-    void (*pAppReset)(void) = (void (*)(void))appResetFn;
-    pAppReset();
+    void (*pReset)(void) = (void (*)(void))appResetFn;
+    pReset();
 
     while (1) {
-        // Should never reach here
+        __NOP();
     }
 }
 

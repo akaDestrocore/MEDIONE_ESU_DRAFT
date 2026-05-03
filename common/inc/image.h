@@ -8,8 +8,11 @@ extern "C" {
 #include <stdint.h>
 
 #define IMAGE_MAGIC_APP       0xDEADC0DE
-#define APP_ADDR              ((uint32_t)0x08004000U)
-#define IMAGE_TYPE_APP        1U
+#define IMAGE_MAGIC_UPDATER   0xC0FFEE00
+#define UPDATER_ADDR          ((uint32_t)0x08004000U)
+#define APP_ADDR              ((uint32_t)0x08010000U)
+#define IMAGE_TYPE_APP        2U
+#define IMAGE_TYPE_UPDATER    1U
 #define IMAGE_HDR_SIZE        0x200U
 #define IMAGE_HDR_VERSION     0x0100U
 
@@ -25,7 +28,7 @@ typedef struct {
     uint32_t crc;                // Patched post-build
     uint32_t data_size;          // Patched post-build
     char     git_sha[16];        // 8-char hex SHA + NUL
-    uint8_t  reserved[0x1D8];    // Pad to exactly 0x200 bytes
+    uint8_t  reserved[0x1D8];    // Pad to exactly IMAGE_HDR_SIZE bytes
 } __attribute__((packed)) image_hdr_t;
 
 int image_isValid(const image_hdr_t *header);

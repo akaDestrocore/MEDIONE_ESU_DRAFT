@@ -7,6 +7,7 @@ extern "C" {
 
 #include "stm32f407xx.h"
 #include <stdbool.h>
+#include "image.h"
 
 void Error_Handler(void);
 
