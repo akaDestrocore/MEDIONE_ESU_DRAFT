@@ -11,7 +11,7 @@ _Min_Stack_Size = 0x400; /* required amount of stack */
 MEMORY
 {
   FLASH_HDR (rx) : ORIGIN = 0x08004000, LENGTH = 0x200
-  FLASH (rx)     : ORIGIN = 0x08004200, LENGTH = 1024K - 0x4200
+  FLASH (rx)     : ORIGIN = 0x08010200, LENGTH = 1024K - 0x10200
   RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 128K
   CCMRAM (rw)    : ORIGIN = 0x10000000, LENGTH = 64K
 }
