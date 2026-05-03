@@ -142,38 +142,43 @@ static void appFsm_enterState(AppDefs_EsuState_e newState) {
 
     // ---- Entry actions ----
     switch (newState) {
-        case AppDefs_EsuState_Idle:
+        case AppDefs_EsuState_Idle: {
             appFsm_allOff();
             // Clear recoverable errors on returning to Idle
             gErrors &= (uint8_t)~(ESU_ERR_OVERCURRENT | ESU_ERR_OVERTEMP);
             nextion_sendPage("mainPage");
             break;
+        }
 
-        case AppDefs_EsuState_CutActive:
+        case AppDefs_EsuState_CutActive: {
             // Configure timers + relay (settle starts inside rfGen_configure)
             rfGen_configureCut((AppDefs_CutMode_e)gSettings.cut_mode);
             // Defer rfGen_enableCut() until relay settles
             gPendingState = AppDefs_EsuState_CutActive;
             nextion_sendPage("activePage");
             break;
+        }
 
-        case AppDefs_EsuState_CoagActive:
+        case AppDefs_EsuState_CoagActive: {
             rfGen_configureCoag((AppDefs_CoagMode_e)gSettings.coag_mode);
             gPendingState = AppDefs_EsuState_CoagActive;
             nextion_sendPage("activePage");
             break;
+        }
 
-        case AppDefs_EsuState_BipolarCut:
+        case AppDefs_EsuState_BipolarCut: {
             rfGen_configureBipolarCut((AppDefs_BipolarCutMode_e)gSettings.cut_mode);
             gPendingState = AppDefs_EsuState_BipolarCut;
             break;
+        }
 
-        case AppDefs_EsuState_BipolarCoag:
+        case AppDefs_EsuState_BipolarCoag: {
             rfGen_configureBipolarCoag((AppDefs_BipolarCoagMode_e)gSettings.coag_mode);
             gPendingState = AppDefs_EsuState_BipolarCoag;
             break;
+        }
 
-        case AppDefs_EsuState_PolypectomyCut:
+        case AppDefs_EsuState_PolypectomyCut: {
             __disable_irq();
             gPolyTick          = 0U;
             gPolyTransitToCoag = false;
@@ -182,23 +187,35 @@ static void appFsm_enterState(AppDefs_EsuState_e newState) {
             rfGen_configureCut(AppDefs_CutMode_Polypectomy);
             gPendingState = AppDefs_EsuState_PolypectomyCut;
             break;
+        }
 
         // PolypectomyCoag cycling is handled inline via gPolyTransit* flags
         // in app_fsmProcess() — no entry through this path in normal operation.
 
-        case AppDefs_EsuState_RemAlarm:
+        case AppDefs_EsuState_RemAlarm: {
             appFsm_allOff();
             gErrors |= ESU_ERR_REM_ALARM;
             nextion_sendPage("remAlarmPage");
             break;
+        }
 
-        case AppDefs_EsuState_Error:
+        case AppDefs_EsuState_Error: {
             appFsm_allOff();
             nextion_sendPage("errorPage");
             break;
+        }
 
-        default:
+        case AppDefs_EsuState_FirmwareUpdate: {
+            // Inform display, then hand off — this call does not return.
+            appFsm_allOff();
+            nextion_sendPage("updatePage");
+            app_jumpToUpdater();
+            break; // Unreachable; satisfies switch completeness
+        }
+
+        default: {
             break;
+        }
     }
 }
 

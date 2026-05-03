@@ -132,7 +132,8 @@ typedef enum
   AppDefs_EsuState_PolypectomyCoag = 6,
   AppDefs_EsuState_RemAlarm        = 7,
   AppDefs_EsuState_Error           = 8,
-  AppDefs_EsuState_Count
+  AppDefs_EsuState_Count           = 10,
+  AppDefs_EsuState_FirmwareUpdate
 } AppDefs_EsuState_e;
 
 /* ----------------------------------------------------------------
